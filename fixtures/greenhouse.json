@@ -1,0 +1,34 @@
+{
+ "meta": {
+  "total": 3
+ },
+ "jobs": [
+  {
+   "id": 101,
+   "title": "Machine Learning Engineer",
+   "location": {
+    "name": "New York, NY; Remote"
+   },
+   "absolute_url": "https://job-boards.greenhouse.io/example/jobs/101",
+   "updated_at": "2026-09-20T09:00:00Z"
+  },
+  {
+   "id": 102,
+   "title": "Data Science Resume Bank",
+   "location": {
+    "name": "Remote"
+   },
+   "absolute_url": "https://job-boards.greenhouse.io/example/jobs/102",
+   "updated_at": "2026-09-01T09:00:00Z"
+  },
+  {
+   "id": 103,
+   "title": "Staff Chef",
+   "location": {
+    "name": "Chicago, IL"
+   },
+   "absolute_url": "https://job-boards.greenhouse.io/example/jobs/103",
+   "updated_at": "2026-09-02T09:00:00Z"
+  }
+ ]
+}

@@ -1,0 +1,43 @@
+{
+ "apiVersion": "1",
+ "jobs": [
+  {
+   "id": "a1",
+   "title": "Senior Data Scientist",
+   "location": "San Francisco HQ",
+   "isListed": true,
+   "isRemote": false,
+   "secondaryLocations": [
+    {
+     "location": "New York City Office"
+    }
+   ],
+   "publishedAt": "2026-09-18T12:00:00Z",
+   "jobUrl": "https://jobs.ashbyhq.com/example/a1"
+  },
+  {
+   "id": "a2",
+   "title": "Data Analyst II",
+   "location": "Remote",
+   "isListed": true,
+   "isRemote": true,
+   "secondaryLocations": [],
+   "publishedAt": "2026-09-10T12:00:00Z",
+   "jobUrl": "https://jobs.ashbyhq.com/example/a2"
+  },
+  {
+   "id": "a3",
+   "title": "Office Manager",
+   "location": "Melbourne",
+   "isListed": true,
+   "isRemote": true,
+   "secondaryLocations": [
+    {
+     "location": "Sydney"
+    }
+   ],
+   "publishedAt": "2026-08-01T12:00:00Z",
+   "jobUrl": "https://jobs.ashbyhq.com/example/a3"
+  }
+ ]
+}
