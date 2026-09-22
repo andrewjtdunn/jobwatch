@@ -74,7 +74,9 @@ def main():
                     "so suspect a field or filter change rather than an empty board.")
         if slug in canaries:
             cid = canaries[slug]
-            if not any(cid in str(x) for x in s.get("seen_ids", [])):
+            # Match either way: a canary recorded as "gh_jid=8106026" and an id of
+            # "8106026" are the same posting seen through two URL forms.
+            if not any(cid in str(x) or str(x) in cid for x in s.get("seen_ids", []) if x):
                 alerts.append(
                     f"**{slug} — canary {cid} not re-found.** Verify that posting directly: "
                     "if it is still live, this board is under-reading.")
