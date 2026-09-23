@@ -10,7 +10,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 from jobwatch import common
-from jobwatch.adapters import ashby, greenhouse, jobvite
+from jobwatch.adapters import ashby, greenhouse, jobvite, radancy, workday
 
 FIX = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fixtures")
 
@@ -22,13 +22,52 @@ def _stub(value):
 
 
 def test_location_rule():
+    """Criteria are "NYC metro, or fully remote / remote-first". The remote leg needs
+    POSITIVE evidence of US-wide remote: a bare "Remote" beside a named office is that
+    office's remote-work flag, not a remote-first role."""
     ok = common.location_ok
-    assert ok(["San Francisco HQ", "New York City Office"])          # NYC as a secondary
-    assert ok(["Jersey City, NJ"]) and ok(["RI - Work from home"])
-    assert ok(["Palo Alto", "Remote"]) and ok(["Remote"])
-    assert not ok(["Newark, DE"])                                     # not Newark, NJ
-    assert not ok(["Melbourne", "Sydney", "Remote"])                  # remote-in-Australia
-    assert not ok(["Ciudad de México", "Remote"]) and not ok(["Chicago, IL"])
+    assert ok(["San Francisco HQ", "New York City Office"])            # NYC as a secondary
+    assert ok(["Jersey City, NJ"]) and ok(["Charlotte", "Jersey City", "Atlanta"])
+    assert ok(["Remote"]) and ok(["Remote - US"]) and ok(["US Remote"])
+    assert ok(["Acme NY", "Remote"])                                 # bare NY = the NY office
+    assert ok(["MA - Wellesley", "Work At Home-New York"])
+    assert not ok(["Newark, DE"])                                      # not Newark, NJ
+    assert not ok(["Chicago, IL"]) and not ok(["Melbourne", "Sydney", "Remote"])
+
+
+def test_bare_remote_beside_an_office_is_not_remote_first():
+    """The 2026-09-23 regression, with the exact values that caused it. Every one of these
+    was surfaced as an NYC-eligible match; several were labelled Strong. The old rule
+    decided US-ness from a blocklist of foreign city names, so a city missing from the
+    list read as American, and it treated "Remote" beside a US
+    office as remote-first."""
+    v = common.location_verdict
+    assert v(["MYS - Kuala Lumpur", "Remote"]) is None       # remote-in-Malaysia
+    assert v(["CZE - Prague", "CZE - Brno", "Remote"]) is None
+    assert v(["Palo Alto", "Remote"]) is None                # hybrid, anchored to Palo Alto
+    assert v(["Acme SF", "Remote"]) is None
+    assert v(["San Francisco HQ", "Remote"]) is None
+    assert v(["USA - Tempe, AZ", "Remote"]) is None          # US, but not NYC and not remote-first
+    assert v(["Palo Alto", "Virginia", "Miami", "Remote"]) is None
+    # ... while the genuine ones still pass, by the leg that actually qualified them
+    assert v(["USA - New York, NY", "Remote"]) == "nyc"
+    assert v(["San Francisco HQ", "New York City Office", "Remote"]) == "nyc"
+    assert v(["Remote"]) == "remote"
+    assert v(["Remote, United States"]) == "remote"
+    # a state-anchored work-from-home tag is real remote work, but may require residence
+    assert v(["AZ - Work from home"]) == "ambiguous"
+    assert common.location_ok(["AZ - Work from home"])       # surfaced, flagged, not dropped
+
+
+def test_displayed_location_never_hides_the_real_anchor():
+    """The display half of the same bug: picking the first "qualifying" item put a bare
+    "Remote" in the Location column while the role was anchored to an office abroad."""
+    p = common.Candidate(slug="t", role="Senior Data Scientist", company="X", url="u",
+                       locations=["MYS - Kuala Lumpur", "Remote"])
+    assert p.to_row([])["Location"].startswith("MYS - Kuala Lumpur")
+    q = common.Candidate(slug="t", role="Senior Data Scientist", company="X", url="u",
+                       locations=["San Francisco HQ", "New York City Office", "Remote"])
+    assert q.to_row([])["Location"].startswith("New York City Office")
 
 
 def test_title_rule():
@@ -94,6 +133,52 @@ def test_config_is_built_from_a_private_export():
     assert boards[0]["adapter"] == "ashby" and boards[0]["min_records"] == 5
     assert unsupported == ["handmade-co"]                                  # falls to the agent path
     assert not os.path.exists(os.path.join(os.path.dirname(FIX), "boards.json")) or True
+
+
+def test_radancy_reads_location_and_date_whatever_the_field_order():
+    """The board reorders the card's spans from time to time. Fields must be read from
+    inside each card independently, never by one regex that assumes title-then-location-
+    then-date: when that assumption broke, every record parsed an EMPTY location, every
+    posting failed the location rule, and the board reported a confident zero."""
+    radancy.http = lambda *a, **k: json.load(open(os.path.join(FIX, "radancy.json")))
+    radancy.time.sleep = lambda *a, **k: None
+    recs = radancy.fetch({"slug": "t", "base": "https://example.com",
+                          "keywords": [""], "max_pages": 1, "min_records": 1})
+    assert len(recs) == 2
+    by_id = {r["id"]: r for r in recs}
+    first = by_id["90000000001"]
+    assert first["title"] == "Senior Data Scientist"
+    assert first["locations"] == ["New York, NY"]        # NOT [""] - the regression
+    assert first["date"] == "2026-06-02"                 # unpadded M/D/YYYY, normalised
+    assert first["url"] == "https://example.com/job/example-city/senior-data-scientist/1000/90000000001"
+    assert common.location_ok(first["locations"])
+    assert by_id["90000000002"]["locations"] == ["Chicago, IL"]
+    assert all(r["locations"] != [""] for r in recs)
+
+
+def test_workday_pages_past_a_zero_total_on_later_pages():
+    """Workday reports the real total only on the first page and sends total=0 on every
+    page after it. Paging must not treat that 0 as the end of the board, or every Workday
+    board silently truncates to the first two pages."""
+    pages = {0: 63, 20: 0, 40: 0, 60: 0}                 # what the live endpoint returns
+
+    def fake_http(url, data=None, expect_json=False, **kw):
+        offset = data["offset"]
+        remaining = max(0, 63 - offset)
+        n = min(20, remaining)
+        return {"total": pages.get(offset, 0),
+                "jobPostings": [{"externalPath": f"/job/r{offset + i}",
+                                 "title": "Data Scientist",
+                                 "locationsText": "New York, NY",
+                                 "bulletFields": [f"R-{offset + i}"],
+                                 "postedOn": "Posted 2 Days Ago"} for i in range(n)]}
+
+    workday.http = fake_http
+    workday.time.sleep = lambda *a, **k: None
+    recs = workday.fetch({"slug": "t", "endpoint": "https://example.com/jobs",
+                          "keywords": [""], "url_shape": "https://example.com{path}",
+                          "min_records": 1})
+    assert len(recs) == 63, f"paging stopped early: read {len(recs)} of 63"
 
 
 if __name__ == "__main__":

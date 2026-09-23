@@ -14,11 +14,10 @@ RESULTS = ("{base}/search-jobs/results?ActiveFacetID=0&CurrentPage={page}"
            "&RecordsPerPage=100&Distance=50&RadiusUnitType=0&Keywords={kw}&Location=&ShowRadius=False"
            "&IsPagination=True&SearchResultsModuleName=Search+Results&SearchFiltersModuleName=Search+Filters"
            "&SortCriteria=0&SortDirection=0&SearchType=5")
-JOB_RX = re.compile(
-    r'<a[^>]+href="(?P<href>/job/[^"]+)"[^>]*>.*?<h2[^>]*>(?P<title>.*?)</h2>.*?'
-    r'(?:<span[^>]*class="job-location"[^>]*>(?P<loc>.*?)</span>)?.*?'
-    r'(?:<span[^>]*class="job-date-posted"[^>]*>(?P<date>[^<]*)</span>)?',
-    re.S | re.I)
+JOB_RX = re.compile(r'<a[^>]+href="(?P<href>/job/[^"]+)"[^>]*>(?P<card>.*?)</a>', re.S | re.I)
+TITLE_RX = re.compile(r"<h2[^>]*>(?P<title>.*?)</h2>", re.S | re.I)
+LOC_RX = re.compile(r'class="job-location"[^>]*>(?P<loc>.*?)</span>', re.S | re.I)
+DATE_RX = re.compile(r'class="job-date-posted"[^>]*>(?P<date>[^<]*)</span>', re.S | re.I)
 TAG_RX = re.compile(r"<[^>]+>")
 
 
@@ -34,12 +33,16 @@ def fetch(cfg):
                 break
             for m in hits:
                 href = m.group("href")
+                card = m.group("card") or ""
+                title = TITLE_RX.search(card)
+                loc = LOC_RX.search(card)
+                posted = DATE_RX.search(card)
                 seen[href] = {
                     "id": href.rstrip("/").split("/")[-1],
-                    "title": TAG_RX.sub("", m.group("title") or "").strip(),
-                    "locations": [TAG_RX.sub("", m.group("loc") or "").strip()],
+                    "title": TAG_RX.sub("", title.group("title") if title else "").strip(),
+                    "locations": [TAG_RX.sub("", loc.group("loc") if loc else "").strip()],
                     "url": cfg["base"].rstrip("/") + href,
-                    "date": iso_date((m.group("date") or "").strip()),
+                    "date": iso_date((posted.group("date") if posted else "").strip()),
                     "date_note": "",
                 }
             time.sleep(1.0)

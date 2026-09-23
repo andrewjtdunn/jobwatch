@@ -29,7 +29,8 @@ def fetch(cfg):
         while True:
             data = _search(cfg, keyword, offset, facets)
             posts = data.get("jobPostings", [])
-            total = data.get("total", total)
+            if data.get("total"):          # only page 1 carries the real total; later pages send 0
+                total = data["total"]
             for p in posts:
                 path = p.get("externalPath", "")
                 seen[path] = {
@@ -44,7 +45,11 @@ def fetch(cfg):
                               and any(ch.isdigit() for ch in (p.get("locationsText") or "")),
                 }
             offset += 20
-            if not posts or (total is not None and offset >= total):
+            if not posts or len(posts) < 20:
+                break
+            if total is not None and offset >= total:
+                break
+            if offset >= cfg.get("max_offset", 2000):
                 break
             time.sleep(0.3)
     records = list(seen.values())
