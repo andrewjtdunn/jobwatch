@@ -74,6 +74,8 @@ def build(rows, *, radancy_adapter="radancy", overrides=None):
             site = re.search(r"siteNumber%3D(CX_\d+)", endpoint) or re.search(r"siteNumber=(CX_\d+)", endpoint)
             cfg.update(host=host.group(1) if host else "", site=site.group(1) if site else "CX_1",
                        keywords=["data scientist"], limit=200)
+            cfg.setdefault("url_shape", cfg["host"] + "/hcmUI/CandidateExperience/en/sites/"
+                           + cfg["site"] + "/job/{id}")
             cfg.pop("endpoint", None)
         if adapter == "workday":
             cfg["keywords"] = ["data scientist", "machine learning", "analytics"]
