@@ -49,7 +49,7 @@ board.
 ## Adapters
 
 `ashby`, `greenhouse`, `workable`, `lever`, `oracle` (Oracle HCM), `workday`, `avature`,
-`capitalone` (Radancy-style results endpoint), `jobvite`, `sitemap`, `socrata`.
+`radancy`, `jobvite`, `sitemap`, `socrata`.
 
 Each exposes `fetch(cfg)` returning records of
 `{id, title, locations[], url, date, date_note}`. Optional `resolve_*` helpers do second
