@@ -1,6 +1,8 @@
-"""Sitemap-driven boards. The URL slug carries the title, and sometimes the location.
-lastmod is a sitemap timestamp, NOT a posting date, and must never be used as one."""
+"""Sitemap-driven boards. The URL slug USUALLY carries the title, and sometimes the
+location. lastmod is a sitemap timestamp, NOT a posting date, and must never be used as
+one."""
 import re
+from html import unescape
 
 from ..common import assert_closes_with, assert_records, http
 
@@ -22,7 +24,10 @@ def fetch(cfg):
         "date": None,
         "date_note": "Sitemap lastmod is not a posting date",
     } for u in urls]
+    # The floor guards the WHOLE board, before any watermark narrowing below.
     assert_records(cfg["slug"], records, minimum=cfg.get("min_records", 1))
+    if cfg.get("title_from") == "page":
+        cfg["_new_watermark"] = resolve_titles(cfg, records)
     return records
 
 
@@ -72,3 +77,50 @@ def resolve(cfg, records):
             r["date_note"] = ""
         _time.sleep(0.6)
     return records
+
+
+TITLE_TAG_RX = re.compile(r"<title>([^<]*)</title>", re.I)
+TITLE_SUFFIX_RX = re.compile(r"\s*[-|]\s*[^-|]{0,40}(careers?|jobs?)\s*$", re.I)
+ID_SEQ_RX = re.compile(r"(\d+)\s*$")
+
+
+def _seq(value):
+    """The trailing integer of an id, for ordering. None when there is not one."""
+    m = ID_SEQ_RX.search(str(value or "").strip())
+    return int(m.group(1)) if m else None
+
+
+def resolve_titles(cfg, records):
+    """Read titles off the job pages, for boards whose job URLs are keyed by id alone.
+
+    Some sitemaps emit /jobs/R-1075582 and nothing else: the slug carries no title, so
+    title_hit() can never fire and the board reads clean while surfacing nothing. The
+    title is on the job page, but a board of thousands cannot be opened in full every run.
+
+    So open only what is newer than cfg['watermark'] -- the highest id already read --
+    OLDEST FIRST, and advance the mark over what was read. A board too large for one run
+    catches up across several and never skips a gap: a failed fetch stops the walk rather
+    than stepping over it, so the mark never moves past a page that was not read.
+
+    Returns the new watermark. NOTHING HERE PERSISTS IT: the caller has to write it back
+    into the board's config, or the next run re-reads the same pages.
+    """
+    mark = _seq(cfg.get("watermark"))
+    fresh = [r for r in records if _seq(r["id"]) is not None]
+    if mark is not None:
+        fresh = [r for r in fresh if _seq(r["id"]) > mark]
+    fresh.sort(key=lambda r: _seq(r["id"]))
+    highest = mark
+    for r in fresh[: cfg.get("max_new_titles", 400)]:
+        try:
+            html = http(r["url"])
+        except Exception:
+            break                      # stop at the gap; do not advance the mark past it
+        found = TITLE_TAG_RX.search(html)
+        if found:
+            title = TITLE_SUFFIX_RX.sub("", unescape(found.group(1))).strip()
+            if title:
+                r["title"] = title
+        highest = _seq(r["id"])
+        _time.sleep(0.4)
+    return highest

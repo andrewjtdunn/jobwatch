@@ -10,7 +10,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 from jobwatch import common
-from jobwatch.adapters import ashby, avature, greenhouse, jobvite, radancy, workday
+from jobwatch.adapters import ashby, avature, greenhouse, jobvite, radancy, sitemap, workday
 
 FIX = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fixtures")
 
@@ -151,6 +151,73 @@ def test_avature_reads_location_from_the_inline_payload():
     r2 = avature.resolve_job_page({}, {"url": "u", "locations": [], "date": None})
     assert r2["locations"] == ["Remote"], r2["locations"]   # no office named at all
     assert common.location_verdict(r2["locations"]) == "remote"
+
+
+def test_sitemap_reads_titles_only_for_what_is_newer_than_the_watermark():
+    """A board whose job URLs are keyed by id alone (/jobs/R-123) carries no title in the
+    slug, so title_hit() can never fire and the board reads clean while surfacing nothing.
+    Titles come off the job pages, but only for ids above the watermark -- opening every
+    page of a board of thousands every run is not affordable."""
+    pages = {
+        "https://x.test/jobs/R-101": "<title>Old Role - Careers</title>",
+        "https://x.test/jobs/R-102": "<title>Data Scientist, Pricing | Jobs</title>",
+        "https://x.test/jobs/R-103": "<title>Power Equipment Operator - Careers</title>",
+    }
+    opened = []
+
+    def fake_http(url, *a, **k):
+        opened.append(url)
+        return pages[url]
+
+    sitemap.http = fake_http
+    sitemap._time.sleep = lambda *a, **k: None
+    records = [{"id": f"R-{n}", "title": f"r {n}", "url": f"https://x.test/jobs/R-{n}",
+                "locations": [], "date": None, "date_note": ""} for n in (101, 102, 103)]
+    cfg = {"slug": "x", "watermark": "R-101", "max_new_titles": 400}
+
+    mark = sitemap.resolve_titles(cfg, records)
+
+    assert opened == ["https://x.test/jobs/R-102", "https://x.test/jobs/R-103"], opened
+    assert records[0]["title"] == "r 101"                 # at the mark, left alone
+    assert records[1]["title"] == "Data Scientist, Pricing"   # site suffix stripped
+    assert records[2]["title"] == "Power Equipment Operator"
+    assert common.title_hit(records[1]["title"])
+    assert not common.title_hit(records[2]["title"])
+    assert mark == 103, mark
+
+
+def test_sitemap_watermark_stops_at_a_gap_instead_of_stepping_over_it():
+    """The mark must never advance past a page that was not read, or those ids are gone
+    for good: the next run starts above them and no later run ever looks again."""
+    def fake_http(url, *a, **k):
+        if url.endswith("R-202"):
+            raise RuntimeError("timeout")
+        return "<title>Data Analyst</title>"
+
+    sitemap.http = fake_http
+    sitemap._time.sleep = lambda *a, **k: None
+    records = [{"id": f"R-{n}", "title": "", "url": f"https://x.test/jobs/R-{n}",
+                "locations": [], "date": None, "date_note": ""} for n in (201, 202, 203)]
+    cfg = {"slug": "x", "watermark": "R-200"}
+
+    mark = sitemap.resolve_titles(cfg, records)
+
+    assert mark == 201, mark        # read 201, hit the gap at 202, stopped
+    assert records[2]["title"] == ""  # 203 untouched, so the next run still reaches it
+
+
+def test_sitemap_budget_caps_a_board_too_big_for_one_run():
+    """A first run against a huge board must not open every page. It takes a bite, oldest
+    first so the mark stays contiguous, and catches up over later runs."""
+    sitemap.http = lambda url, *a, **k: "<title>Data Engineer</title>"
+    sitemap._time.sleep = lambda *a, **k: None
+    records = [{"id": f"R-{n}", "title": "", "url": f"https://x.test/jobs/R-{n}",
+                "locations": [], "date": None, "date_note": ""} for n in range(500, 400, -1)]
+    cfg = {"slug": "x", "max_new_titles": 3}      # no watermark at all: a cold start
+
+    mark = sitemap.resolve_titles(cfg, records)
+
+    assert mark == 403, mark        # 401, 402, 403 -- the OLDEST three, not the newest
 
 
 def test_config_is_built_from_a_private_export():
