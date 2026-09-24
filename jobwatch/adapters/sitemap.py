@@ -104,14 +104,22 @@ def resolve_titles(cfg, records):
 
     Returns the new watermark. NOTHING HERE PERSISTS IT: the caller has to write it back
     into the board's config, or the next run re-reads the same pages.
+
+    Also sets cfg["_watermark_backlog"]: how many fresh records the budget did NOT reach.
+    A backlog that is non-zero every run means max_new_titles is below the board's own
+    posting rate, and the board is permanently behind -- it never catches up, and it only
+    ever reads stale ids. Without this number that condition is invisible, because the
+    board reports a clean read either way.
     """
     mark = _seq(cfg.get("watermark"))
     fresh = [r for r in records if _seq(r["id"]) is not None]
     if mark is not None:
         fresh = [r for r in fresh if _seq(r["id"]) > mark]
     fresh.sort(key=lambda r: _seq(r["id"]))
+    budget = cfg.get("max_new_titles", 400)
+    cfg["_watermark_backlog"] = max(0, len(fresh) - budget)
     highest = mark
-    for r in fresh[: cfg.get("max_new_titles", 400)]:
+    for r in fresh[:budget]:
         try:
             html = http(r["url"])
         except Exception:

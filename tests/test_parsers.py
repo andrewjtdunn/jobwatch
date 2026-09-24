@@ -218,6 +218,22 @@ def test_sitemap_budget_caps_a_board_too_big_for_one_run():
     mark = sitemap.resolve_titles(cfg, records)
 
     assert mark == 403, mark        # 401, 402, 403 -- the OLDEST three, not the newest
+    assert cfg["_watermark_backlog"] == 97, cfg["_watermark_backlog"]
+
+
+def test_sitemap_reports_when_the_budget_is_not_the_binding_constraint():
+    """A backlog of 0 means the budget was never the limit -- the board was fully caught
+    up. Only a PERSISTENTLY non-zero backlog means max_new_titles is set below the
+    board's own posting rate, which is the case that never resolves on its own."""
+    sitemap.http = lambda url, *a, **k: "<title>Data Engineer</title>"
+    sitemap._time.sleep = lambda *a, **k: None
+    records = [{"id": f"R-{n}", "title": "", "url": f"https://x.test/jobs/R-{n}",
+                "locations": [], "date": None, "date_note": ""} for n in (11, 12)]
+    cfg = {"slug": "x", "watermark": "R-10", "max_new_titles": 400}
+
+    sitemap.resolve_titles(cfg, records)
+
+    assert cfg["_watermark_backlog"] == 0, cfg["_watermark_backlog"]
 
 
 def test_config_is_built_from_a_private_export():

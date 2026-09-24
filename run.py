@@ -83,7 +83,8 @@ def main():
         slug = cfg["slug"]
         status = {"board": cfg["company"], "slug": slug, "adapter": cfg["adapter"],
                   "ok": False, "records_read": 0, "title_hits": 0, "candidates": 0,
-                  "seen_ids": [], "error": "", "partial": "", "new_watermark": ""}
+                  "seen_ids": [], "error": "", "partial": "", "new_watermark": "",
+                  "watermark_backlog": 0}
         try:
             records, hits, cands = run_board(cfg)
             status.update(ok=True, records_read=len(records), title_hits=len(hits),
@@ -94,6 +95,7 @@ def main():
             # mark it reached. Nothing here can write config; the caller persists it.
             if cfg.get("_new_watermark") is not None:
                 status["new_watermark"] = str(cfg["_new_watermark"])
+                status["watermark_backlog"] = cfg.get("_watermark_backlog", 0)
             with open(f"{args.out}/cands/{slug}.json", "w") as fh:
                 json.dump([{k: v for k, v in c.items() if not k.startswith("_")} for c in cands], fh, indent=1)
             print(f"{slug:42s} ok  records={len(records):5d} hits={len(hits):4d} cands={len(cands):3d}")
