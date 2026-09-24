@@ -6,7 +6,21 @@ import time
 
 from ..common import assert_records, http
 
-ROW_RX = re.compile(r'<a[^>]+href="(?P<href>[^"]*/JobDetail/[^"]+)"[^>]*>(?P<title>[^<]+)</a>', re.I)
+# Listing anchors come in two shapes. The slug form (/JobDetail/<slug>/<id>) now survives
+# only in the detail page's canonical tag and its share links; current listing pages emit
+# the query-string form (JobDetail?jobId=<id>). Matching only the slug form finds no rows,
+# which breaks the paging loop on page 1 and reports as an empty board.
+ROW_RX = re.compile(
+    r'<a[^>]+href="(?P<href>[^"]*JobDetail(?:/[^"?]+|\?jobId=\d+)[^"]*)"[^>]*>(?P<title>[^<]+)</a>',
+    re.I,
+)
+JOBID_RX = re.compile(r'[?&]jobId=(\d+)', re.I)
+
+
+def _id_from(href):
+    """The id is the last path segment in the slug form, the jobId in the query form."""
+    m = JOBID_RX.search(href)
+    return m.group(1) if m else href.rstrip("/").split("/")[-1]
 
 
 def fetch(cfg):
@@ -21,7 +35,7 @@ def fetch(cfg):
         for m in rows:
             href = m.group("href")
             seen[href] = {
-                "id": href.rstrip("/").split("/")[-1],
+                "id": _id_from(href),
                 "title": m.group("title").strip(),
                 "locations": [],          # resolved on the job page
                 "url": href if href.startswith("http") else cfg["base"] + href,
@@ -38,6 +52,12 @@ def fetch(cfg):
 
 LOC_BLOCK_RX = re.compile(r'article__header--locations(.*?)</div>', re.S | re.I)
 CITY_RX = re.compile(r'>\s*([A-Z][A-Za-z .\'-]+,\s*[A-Za-z ]+,\s*United States)\s*<')
+# Newer detail pages drop the locations block and carry a single "Location:" field inside
+# an inline JS payload, with "Remote Work:" as a SEPARATE flag. That flag is the office's
+# remote toggle, not a remote-first role, so it is only evidence of remote work when no
+# office is named at all -- location_verdict() decides, not this adapter.
+INLINE_LOC_RX = re.compile(r'"Location:"\s*:\s*"([^"]*)"')
+INLINE_REMOTE_RX = re.compile(r'"Remote Work:"\s*:\s*"(Yes|No)"', re.I)
 JSONLD_DATE_RX = re.compile(r'"datePosted"\s*:\s*"(\d{4}-\d{2}-\d{2})')
 
 
@@ -45,8 +65,15 @@ def resolve_job_page(cfg, record):
     """Consulting boards hide 40+ cities behind "Multiple Locations"; the job page lists them."""
     html = http(record["url"])
     block = LOC_BLOCK_RX.search(html)
-    if block:
-        record["locations"] = CITY_RX.findall(block.group(1)) or record["locations"]
+    locs = CITY_RX.findall(block.group(1)) if block else []
+    if not locs:
+        locs = [v.strip() for v in INLINE_LOC_RX.findall(html) if v.strip()]
+        if not locs:
+            flag = INLINE_REMOTE_RX.search(html)
+            if flag and flag.group(1).lower() == "yes":
+                locs = ["Remote"]
+    if locs:
+        record["locations"] = locs
     date = JSONLD_DATE_RX.search(html)
     if date:
         record["date"] = date.group(1)

@@ -10,7 +10,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 from jobwatch import common
-from jobwatch.adapters import ashby, greenhouse, jobvite, radancy, workday
+from jobwatch.adapters import ashby, avature, greenhouse, jobvite, radancy, workday
 
 FIX = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fixtures")
 
@@ -115,6 +115,42 @@ def test_jobvite_markup_and_floor():
         pass
     else:
         raise AssertionError("a board under its floor must raise, not return quietly")
+
+
+def test_avature_reads_both_job_link_shapes():
+    """A listing page that links as JobDetail?jobId=<id> must still parse. Matching only
+    the older /JobDetail/<slug>/<id> form found no rows, which broke the paging loop on
+    page 1 and reported a healthy board as empty."""
+    html = open(os.path.join(FIX, "avature.html")).read()
+    avature.http = lambda *a, **k: html
+    cfg = {"slug": "x", "endpoint": "https://example-boards.test/careers/SearchJobs/",
+           "base": "https://example-boards.test", "per_page": 3, "max_records": 3,
+           "min_records": 1}
+    records = avature.fetch(cfg)
+    assert len(records) == 3, records
+    ids = {r["id"] for r in records}
+    assert ids == {"123825", "123826", "119001"}, ids     # query form yields the jobId
+    titles = {r["title"] for r in records}
+    assert "Data Scientist, Mission Analytics" in titles
+    assert all(r["url"].startswith("https://example-boards.test") for r in records)
+
+
+def test_avature_reads_location_from_the_inline_payload():
+    """The locations block was replaced by a "Location:" field in an inline JS payload,
+    with "Remote Work:" as a separate flag. A bare remote flag beside a named office is
+    that office's toggle, so it must not turn into a remote-first location."""
+    detail = open(os.path.join(FIX, "avature_detail.html")).read()
+    avature.http = lambda *a, **k: detail
+    r = avature.resolve_job_page({}, {"url": "u", "locations": [], "date": None})
+    assert r["locations"] == ["New York,NY,US"], r["locations"]
+    assert r["date"] == "2026-09-19"
+    assert common.location_verdict(r["locations"]) == "nyc"
+
+    remote = open(os.path.join(FIX, "avature_detail_remote.html")).read()
+    avature.http = lambda *a, **k: remote
+    r2 = avature.resolve_job_page({}, {"url": "u", "locations": [], "date": None})
+    assert r2["locations"] == ["Remote"], r2["locations"]   # no office named at all
+    assert common.location_verdict(r2["locations"]) == "remote"
 
 
 def test_config_is_built_from_a_private_export():
