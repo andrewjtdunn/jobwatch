@@ -10,7 +10,8 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 from jobwatch import common
-from jobwatch.adapters import ashby, avature, greenhouse, jobvite, radancy, sitemap, workday
+from jobwatch.adapters import (ashby, avature, greenhouse, icims, jobvite, radancy, roster,
+                               sitemap, workday)
 
 FIX = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "fixtures")
 
@@ -299,6 +300,143 @@ def test_workday_pages_past_a_zero_total_on_later_pages():
                           "min_records": 1})
     assert len(recs) == 63, f"paging stopped early: read {len(recs)} of 63"
 
+
+
+def _icims_pages():
+    """Page bodies keyed by the pr value that should fetch them."""
+    return {0: open(os.path.join(FIX, "icims_p1.html")).read(),
+            1: open(os.path.join(FIX, "icims_p2.html")).read()}
+
+
+def _icims_stub(pages, log):
+    def _http(url, *a, **k):
+        import urllib.parse
+        pr = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(url).query)).get("pr")
+        log.append(pr)
+        return pages.get(int(pr), open(os.path.join(FIX, "icims_empty.html")).read())
+    icims.http = _http
+
+
+def test_us_scoped_remote_needs_no_particular_word_order():
+    """Three sightings of the same gap: a remote token that positively names the US but
+    does not match the literal patterns. "US-based remote" puts the qualifier BETWEEN the
+    two words; "Work from Home, United States" names the country rather than US/USA. Both
+    are unambiguous US-wide remote. The state-anchored tags beside them must NOT move."""
+    v = common.location_verdict
+    assert v(["US-based remote"]) == "remote"
+    assert v(["US based remote"]) == "remote"
+    assert v(["Work from Home, United States"]) == "remote"
+    # ...and the cases that must stay exactly where they were
+    assert v(["MO - Remote"]) == "ambiguous"
+    assert v(["AZ - Work from home"]) == "ambiguous"
+    assert v(["Work At Home-Connecticut"]) == "ambiguous"
+    assert v(["Palo Alto", "Remote"]) is None
+    assert v(["MYS - Kuala Lumpur", "Remote"]) is None
+
+
+def test_icims_pr_is_zero_based():
+    """pr=0 and the bare URL are the SAME page, so a walk that starts at pr=1 drops the
+    FIRST page -- the newest requisitions -- while every later page reads fine. Measured
+    2026-09-25 on a live 3-page board: pr=0..2 gives 142 postings, pr=1..3 gives 92, and
+    the short read reports success."""
+    log = []
+    _icims_stub(_icims_pages(), log)
+    records = icims.fetch({"slug": "x", "endpoint": "https://example-jobs.test/jobs/search?ss=1",
+                           "min_records": 1})
+    assert log[0] == "0", f"walk must start at pr=0, started at {log[0]}"
+    ids = [r["id"] for r in records]
+    assert ids == ["100001", "100002", "100003"], ids
+    assert "100001" in ids, "the first page was dropped"
+
+
+def test_icims_walks_to_the_page_count_not_to_an_empty_page():
+    """The header reports the true page count. An empty page mid-walk is what a
+    rate-limited or redirected fetch looks like too, so it must fail rather than read as
+    the end of the board."""
+    log = []
+    _icims_stub({0: open(os.path.join(FIX, "icims_p1.html")).read()}, log)   # page 2 comes back empty
+    try:
+        icims.fetch({"slug": "x", "endpoint": "https://example-jobs.test/jobs/search", "min_records": 1})
+    except common.BoardError as e:
+        assert "of 2 pages" in str(e), e
+    else:
+        raise AssertionError("a short walk against a known page count must raise")
+
+
+def test_icims_normalises_region_codes():
+    """Locations arrive as iCIMS region codes. A city part that is itself a remote token
+    must keep its state visible, so the location rule reads it as a state-anchored
+    work-from-home tag (surfaced, flagged) and not as remote-first."""
+    log = []
+    _icims_stub(_icims_pages(), log)
+    by_id = {r["id"]: r for r in icims.fetch(
+        {"slug": "x", "endpoint": "https://example-jobs.test/jobs/search", "min_records": 1})}
+    assert by_id["100001"]["locations"] == ["New York, NY", "Austin, TX"]
+    assert by_id["100002"]["locations"] == ["MO - Remote"]
+    # page 2's fixture uses the OTHER tenant's field labels ("Location" not "Job
+    # Locations"). Keying on label text parsed one tenant and silently returned empty
+    # locations for the other, which the location rule then dropped as no-match.
+    assert by_id["100003"]["locations"] == ["Toronto, ON, CA"]
+    assert common.location_verdict(by_id["100001"]["locations"]) == "nyc"
+    assert common.location_verdict(by_id["100002"]["locations"]) == "ambiguous"
+    assert common.location_verdict(by_id["100003"]["locations"]) is None
+    assert by_id["100001"]["date"] is None, "the search listing publishes no date"
+    # ?in_iframe=1 is presentational, not identity; stored rows do not carry it, and
+    # keeping it would make every posting on the board look new every run.
+    assert by_id["100001"]["url"] == "https://example-jobs.test/jobs/100001/senior-data-scientist/job"
+
+
+def test_roster_namespaces_ids_and_survives_an_empty_member():
+    """Member id spaces collide, so ids must be namespaced or dedupe drops one firm's
+    postings as another's. An empty member is normal and must not fail the roster; a
+    broken one must be reported rather than swallowed."""
+    from jobwatch import adapters
+
+    class _Mod:
+        def __init__(self, rows): self.rows = rows
+        def fetch(self, cfg):
+            if self.rows == "boom":
+                raise common.BoardError("endpoint gone")
+            return [dict(r) for r in self.rows]
+
+    mods = {"a": _Mod([{"id": "1", "title": "Data Scientist", "locations": ["Remote"],
+                        "url": "u1", "date": None, "date_note": ""}]),
+            "b": _Mod([{"id": "1", "title": "Data Analyst", "locations": ["Remote"],
+                        "url": "u2", "date": None, "date_note": ""}]),
+            "c": _Mod([]),            # no open roles: normal
+            "d": _Mod("boom")}        # broken: reported, not fatal
+    real, adapters.get = adapters.get, lambda name: mods[name]
+    try:
+        records = roster.fetch({"slug": "r", "min_records": 1, "members": [
+            {"adapter": "a", "member": "one", "company": "One", "endpoint": "e"},
+            {"adapter": "b", "member": "two", "company": "Two", "endpoint": "e"},
+            {"adapter": "c", "member": "three", "company": "Three", "endpoint": "e"},
+            {"adapter": "d", "member": "four", "company": "Four", "endpoint": "e"}]})
+    finally:
+        adapters.get = real
+    assert [r["id"] for r in records] == ["a:one:1", "b:two:1"], [r["id"] for r in records]
+    assert {r["company"] for r in records} == {"One", "Two"}
+    assert all("1/4 members failed" in r["_partial"] for r in records)
+    assert "four" in records[0]["_partial"]
+
+
+def test_roster_fails_when_every_member_fails():
+    """A roster whose members have all gone is a failure, not a quiet zero."""
+    from jobwatch import adapters
+
+    class _Dead:
+        def fetch(self, cfg): raise common.BoardError("gone")
+
+    real, adapters.get = adapters.get, lambda name: _Dead()
+    try:
+        roster.fetch({"slug": "r", "min_records": 1,
+                      "members": [{"adapter": "x", "member": "one", "endpoint": "e"}]})
+    except common.BoardError as e:
+        assert "every member failed" in str(e), e
+    else:
+        raise AssertionError("an all-members failure must raise")
+    finally:
+        adapters.get = real
 
 if __name__ == "__main__":
     import traceback

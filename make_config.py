@@ -36,6 +36,7 @@ def infer_adapter(endpoint):
         ("jobs.jobvite.com", "jobvite"),
         ("apply.workable.com", "workable"),
         ("jobs.lever.co", "lever"),
+        ("icims.com", "icims"),
         ("/search-jobs", "radancy"),
     ]
     for needle, adapter in rules:

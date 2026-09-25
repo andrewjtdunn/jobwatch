@@ -41,8 +41,13 @@ REMOTE_RX = re.compile(r"\bremote\b|\bwfh\b|work from home|work at home|virtual 
 # "Remote" beside an office is that office's remote-work flag, not a US-remote role.
 US_REMOTE_RX = re.compile(
     r"remote[\s\-\u2013(,]*(us|u\.s\.|usa|united states|north america|nationwide)\b|"
-    r"\b(us|u\.s\.|usa|united states)[\s\-\u2013]*remote|"
-    r"anywhere in the (us|united states)|work from home[\s\-\u2013,]*(us|usa)\b", re.I)
+    # "US-based remote" / "US based remote": the qualifier sits BETWEEN the two words.
+    r"\b(us|u\.s\.|usa|united states)[\s\-\u2013]*(based[\s\-\u2013]*)?remote|"
+    r"anywhere in the (us|united states)|"
+    # "Work from Home, United States" names the COUNTRY, so it is US-wide remote. A
+    # state-anchored tag ("AZ - Work from home", "Work At Home-Connecticut") must NOT
+    # match here -- it stays ambiguous, because the req may require residence there.
+    r"work\s+(from|at)\s+home[\s\-\u2013,]*(us|usa|u\.s\.|united states)\b", re.I)
 # A location that is nothing but a remote token, i.e. names no place at all.
 BARE_REMOTE_RX = re.compile(
     r"^(remote|fully remote|remote work|remote - flexible|virtual|virtual office|wfh|"
