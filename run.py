@@ -30,6 +30,8 @@ GROUPS = {
     "avature": ["avature"],
     "sitemap": ["sitemap"],
     "gov": ["socrata", "jobvite"],
+    "icims": ["icims"],
+    "roster": ["roster"],
 }
 
 
