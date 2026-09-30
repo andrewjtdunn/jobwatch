@@ -20,7 +20,8 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from jobwatch import adapters
-from jobwatch.common import BoardError, location_ok, title_hit
+from jobwatch.classify import classify
+from jobwatch.common import BoardError, title_hit
 
 GROUPS = {
     "ashby": ["ashby"],
@@ -66,7 +67,22 @@ def run_board(cfg):
             except BoardError:
                 pass
             time.sleep(0.5)
-    cands = [r for r in hits if location_ok(r["locations"])]
+    # PRECISION STAGE. title_hit() above is the loose recall gate and its count is a
+    # health baseline, so it is deliberately left alone. classify() decides what is
+    # actually a match and at what level, and stamps the answer onto the record so the
+    # caller does not re-judge it -- re-judging itevery run is what produced 19 rows tagged
+    # FILTER/KEYWORD WIDENED on 2026-09-29.
+    gov = bool(cfg.get("gov"))
+    tech = bool(cfg.get("tech_firm"))
+    cands = []
+    for r in hits:
+        verdict = classify(r["title"], r["locations"], gov=gov, tech_firm=tech,
+                           text=r.get("description") or r.get("text"))
+        if not verdict.keep:
+            continue
+        r["match"] = verdict.match
+        r["why"] = verdict.reason
+        cands.append(r)
     return records, hits, cands
 
 

@@ -49,8 +49,26 @@ def infer_adapter(endpoint):
     return None
 
 
+# Two classification facts are per-employer, not per-adapter, and they live in the
+# private params file as LISTS rather than as a flag repeated on 57 board entries:
+#
+#   _gov_boards        -- employers where "Director" and "Deputy Director" ARE the
+#                         manager tier (civil service, and nonprofits that use the same
+#                         ladder) rather than a rung above it.
+#   _tech_firm_boards  -- employers where Lead/Principal/Staff titles are too senior.
+#                         The criteria count a Staff IC at a fintech or health-tech as
+#                         being at a tech firm, so the list is broader than "big tech".
+#
+# They are lists here so the membership is reviewable in one place. classify() only ever
+# sees booleans, and no employer name enters this repo.
+GOV_KEY = "_gov_boards"
+TECH_KEY = "_tech_firm_boards"
+
+
 def build(rows, *, radancy_adapter="radancy", overrides=None):
-    overrides = overrides or {}
+    overrides = dict(overrides or {})
+    gov = set(overrides.pop(GOV_KEY, []) or [])
+    tech = set(overrides.pop(TECH_KEY, []) or [])
     boards, unsupported = [], []
     for row in rows:
         if (row.get("Active") or "").upper() not in ("__YES__", "YES", "TRUE"):
@@ -93,6 +111,10 @@ def build(rows, *, radancy_adapter="radancy", overrides=None):
         params = row.get("Params")
         if params:
             cfg.update(params if isinstance(params, dict) else json.loads(params))
+        if cfg["slug"] in gov:
+            cfg["gov"] = True
+        if cfg["slug"] in tech:
+            cfg["tech_firm"] = True
         if cfg["slug"] in overrides:          # per-board overrides from the private params file
             cfg.update(overrides[cfg["slug"]])
         if not cfg["adapter"]:
