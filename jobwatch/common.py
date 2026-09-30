@@ -148,6 +148,75 @@ def location_verdict(locations):
     return None
 
 
+# --------------------------------------------------------------------------------
+# REMOTE EVIDENCE IN THE DESCRIPTION, NOT THE LOCATION LIST.
+#
+# location_verdict() below refuses to infer remote-ness from a location list, and it is
+# right to: a bare "Remote" beside an office is that office's flag. But some employers
+# put the remote option in the location list as one entry among all their offices and
+# state the ACTUAL answer in the job description. Reading only the list then drops a
+# genuinely remote-first role.
+#
+# Found 2026-09-30 on a law-firm board with no NYC office: two data roles listed
+# "Virtual Office" alongside 22 named offices, so the list said "not remote", while the
+# description said "This position may be filled remotely or in a hybrid capacity in any
+# of our Central and Eastern Time locations" and carried #LI-Remote. Both had been
+# excluded since 2026-09-23. The list was never going to answer the question.
+REMOTE_TEXT_RX = re.compile(
+    r"#li-remote"
+    r"|(?:will|can|may)\s+(?:be\s+)?(?:work(?:ed)?|filled)\s+(?:\w+\s+){0,2}remote"
+    r"|\b(?:fully|100%|entirely|permanently)\s+remote"
+    r"|\bremote[\s\-]*(?:first|eligible|optional)\b"
+    r"|\bthis\s+(?:is\s+a|position\s+is\s+a?)\s*(?:\w+\s+){0,2}remote"
+    r"|\bwork\s+from\s+anywhere\b",
+    re.I)
+# Phrases that CANCEL the above. Checked first, because "not a remote position" contains
+# "remote position" and a naive match would read it backwards.
+NOT_REMOTE_TEXT_RX = re.compile(
+    r"\bnot\s+(?:a\s+)?remote\b|\bno\s+remote\b|\bremote\s+work\s+is\s+not\b"
+    r"|\bnot\s+eligible\s+for\s+remote\b|\bon[\-\s]?site\s+only\b"
+    r"|\bmust\s+(?:be\s+)?(?:work|report)\s+(?:on[\-\s]?site|in[\-\s]?office)\b",
+    re.I)
+# A US time-zone scope is positive US evidence: these zones are US-only. It does not pin
+# a city, so it stays a flagged maybe rather than a clean remote.
+US_TZ_RX = re.compile(r"\b(eastern|central|mountain|pacific)\s+time\b", re.I)
+
+
+def remote_text_verdict(text):
+    """Remote-ness as stated in a job description. "remote", "ambiguous", or None.
+
+    "remote"    -- says plainly that the role is remote, with no geographic catch.
+    "ambiguous" -- says remote but ties it to a region or the employer's own footprint
+                   ("in any of our Central and Eastern Time locations"). Genuinely
+                   remote, but whether a given city qualifies is not stated. Surface it
+                   flagged; do not drop it and do not call it Strong.
+    """
+    t = text or ""
+    if not t:
+        return None
+    if NOT_REMOTE_TEXT_RX.search(t):
+        return None
+    if not REMOTE_TEXT_RX.search(t):
+        return None
+    if US_TZ_RX.search(t) or re.search(r"\bin\s+any\s+of\s+our\b", t, re.I):
+        return "ambiguous"
+    return "remote"
+
+
+def posting_verdict(locations, text=None):
+    """The location verdict for a posting, using its description when the list is silent.
+
+    The list is tried first and wins when it is decisive -- an NYC office in the list is
+    stronger evidence than any wording. Only when the list yields nothing does the
+    description get a say, and the best it can produce on its own is "ambiguous" unless
+    it states remote work flatly.
+    """
+    verdict = location_verdict(locations)
+    if verdict is not None:
+        return verdict
+    return remote_text_verdict(text)
+
+
 def location_ok(locations) -> bool:
     """True when a posting is worth surfacing on location. Ambiguous cases count: the
     human would rather dismiss a flagged maybe than lose it to an invisible filter."""
