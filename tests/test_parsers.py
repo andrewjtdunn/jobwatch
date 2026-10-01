@@ -334,6 +334,62 @@ def test_us_scoped_remote_needs_no_particular_word_order():
     assert v(["MYS - Kuala Lumpur", "Remote"]) is None
 
 
+def test_upstate_new_york_is_not_new_york_city():
+    """"\\bnew york\\b" matches the STATE, so upstate cities were grading as NYC matches.
+
+    Measured 2026-10-01: a consulting role offered in 30 US cities whose only two New York
+    entries were Rochester and Williamsville -- both ~350 miles from Manhattan -- was
+    graded a clean "nyc" match and would have been written as a candidate. A role in the
+    wrong city is a WRONG match, not a borderline one.
+    """
+    v = common.location_verdict
+    assert v(["Rochester, New York, United States"]) is None
+    assert v(["Williamsville, New York, United States"]) is None
+    assert v(["Buffalo, New York"]) is None
+    assert v(["Albany, New York"]) is None
+    assert v(["Syracuse, NY"]) is None
+    # The check is PER STRING, so the all-locations rule still wins on a real NYC entry.
+    assert v(["Rochester, New York", "New York, NY"]) == "nyc"
+    assert v(["Albany - One Commerce Plaza",
+              "New York City - One State Street"]) == "nyc"
+    # ...and the metro area must not move.
+    for loc in ("New York, NY", "New York City", "Brooklyn, New York, United States",
+                "Long Island City, NY", "Jersey City, NJ", "Yonkers, NY",
+                "White Plains, NY", "Purchase, NY", "Westchester, NY", "Newark, NJ"):
+        assert v([loc]) == "nyc", loc
+    # A same-named city in another state was never NYC and still is not.
+    assert v(["Rochester, MN"]) is None
+    assert v(["Newark, DE"]) is None
+
+
+def test_a_bare_country_is_not_an_office_anchor():
+    """A location naming only the COUNTRY identifies no office, so beside a remote token
+    the posting is anchored nowhere and is US-wide remote.
+
+    Measured 2026-10-01: ["United States", "Remote"] returned None while ["Remote"] alone
+    returned "remote", so merely NAMING the country flipped a qualifying posting to a
+    no-match. That cost a data role on two separate boards. A country is not an office,
+    and the docstring's rule ("a bare Remote beside a SPECIFIC OFFICE is that office's
+    flag") never meant to cover it.
+    """
+    v = common.location_verdict
+    assert v(["United States", "Remote"]) == "remote"
+    assert v(["Remote", "United States"]) == "remote"
+    assert v(["US", "Remote"]) == "remote"
+    assert v(["Nationwide", "Remote"]) == "remote"
+    # A bare country with NO remote token anywhere is still NOT remote: an onsite role
+    # may list only its country. The anchor test is never reached in that case.
+    assert v(["United States"]) is None
+    assert v(["USA"]) is None
+    # A STATE or a city remains a real anchor -- these must not move.
+    assert v(["Maryland", "Remote"]) is None
+    assert v(["Palo Alto", "Remote"]) is None
+    assert v(["MYS - Kuala Lumpur", "Remote"]) is None
+    assert v(["AZ - Work from home"]) == "ambiguous"
+    # NYC anywhere in the list still wins outright.
+    assert v(["United States", "Remote", "New York, NY"]) == "nyc"
+
+
 def test_icims_pr_is_zero_based():
     """pr=0 and the bare URL are the SAME page, so a walk that starts at pr=1 drops the
     FIRST page -- the newest requisitions -- while every later page reads fine. Measured

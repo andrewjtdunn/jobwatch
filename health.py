@@ -32,6 +32,23 @@ def parse_counts(s):
     return out
 
 
+def records_read(status):
+    """How many records a board read, whichever schema wrote the status file.
+
+    The scripted adapters write "records_read". The agent path is a permanent part of
+    the system and its hand-written status files use "records" instead -- nothing pins
+    that schema, and on 2026-10-01 reading only "records_read" scored all 14 agent-path
+    boards at 0 records and raised a false under-reading alert on every one of them,
+    including boards that had read their full baseline. Fall back to the length of
+    seen_ids last, since a board that lists its ids has demonstrably read them.
+    """
+    for key in ("records_read", "records"):
+        value = status.get(key)
+        if isinstance(value, int):
+            return value
+    return len(status.get("seen_ids") or [])
+
+
 def parse_pairs(s, sep="="):
     out = {}
     for part in (s or "").split(";"):
@@ -56,7 +73,7 @@ def main():
     for path in sorted(glob.glob(f"{args.status}/*.json")):
         s = json.load(open(path))
         slug = s.get("slug") or os.path.basename(path)[:-5]
-        rec, cand = s.get("records_read", 0), s.get("candidates", 0)
+        rec, cand = records_read(s), s.get("candidates", 0)
         counts.append(f"{slug}:{rec}/{cand}{'' if s.get('ok') else '!'}")
 
         if not s.get("ok"):

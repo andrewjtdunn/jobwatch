@@ -184,6 +184,50 @@ def test_match_levels():
           classify("Machine Learning Engineer 4", NYC).match == "Possible")
 
 
+
+def test_go_to_market_roles_are_not_data_roles():
+    """FUNCTION_RX matches a bare "ai", so an AI PRODUCT being sold or deployed was
+    satisfying the function rule on behalf of a commercial role.
+
+    Measured 2026-10-01 on live boards: "Account Executive, AI Startups - Grower",
+    "Strategic Accounts Sales Leader, AI GTM", two "AI Engagement Manager" postings (both
+    graded STRONG) and "AI Deployments PM" all reached the candidate stage. The AI is the
+    product being sold or deployed, not the work.
+    """
+    for title in ("Account Executive, AI Startups - Grower",
+                  "Strategic Accounts Sales Leader, AI GTM",
+                  "AI Engagement Manager | Housing",
+                  "AI Engagement Manager, Institutional Owners | Housing",
+                  "Customer Success Manager, AI",
+                  "Client Success Lead, Machine Learning",
+                  "Partnerships Manager, Data Products",
+                  "Revenue Operations Manager, AI",
+                  "Pre-Sales Engineer, Machine Learning"):
+        check(f"gtm drops {title}", not classify(title, NYC, tech_firm=True).keep)
+
+    # "PM" is as common as the spelled-out words and must read as product manager.
+    check("an AI PM is still a product manager",
+          not classify("AI Deployments PM - Future Platforms | Housing",
+                       NYC, tech_firm=True).keep)
+    check("a TPM is still a programme manager",
+          not classify("TPM, Data Platform", NYC, tech_firm=True).keep)
+
+    # AI ADVISORY / CONSULTING IS IN THE CRITERIA and must survive this rule.
+    for title in ("AI Solutions Consultant", "AI Advisory Lead", "AI Strategy Advisor"):
+        check(f"advisory survives: {title}", classify(title, NYC).keep)
+
+    # A genuine data function in a commercial DOMAIN still reaches the other axes: the
+    # sales pattern is deliberately narrowed to a commercial ROLE NOUN.
+    check("sales analytics is still analytics",
+          classify("Sales Analytics Manager", NYC).keep)
+    check("data science manager in a finance org survives",
+          classify("Data Science Manager, Finance and Strategy", NYC).keep)
+    check("analytics manager survives",
+          classify("Analytics Manager - Research & Client Strategy", NYC).keep)
+    check("account-level data engineering survives",
+          classify("Data Engineer, Account Platform", NYC).keep)
+
+
 if __name__ == "__main__":
     for fn in [v for k, v in sorted(globals().items()) if k.startswith("test_")]:
         fn()

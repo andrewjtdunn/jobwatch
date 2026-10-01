@@ -89,6 +89,27 @@ PRODUCT_RX = re.compile(r"""(
   | program\s*manager | project\s*manag | scrum | \bagile\b | salesforce
   | technical\s*program | business\s*development | \bsales\b\s*(strategy|engineer)
   | marketing\s*(ai|automation)
+  # "AI Deployments PM" is a product manager. The abbreviation is as common as the words
+  # and was passing the whole rule on the strength of the "AI" in front of it.
+  | \bpm\b | \btpm\b
+)""", re.I | re.X)
+
+# GO-TO-MARKET AND CUSTOMER-FACING ROLES ARE NOT DATA ROLES, however much AI is in the
+# title. FUNCTION_RX matches a bare "ai", so on 2026-10-01 "Account Executive, AI
+# Startups", "Strategic Accounts Sales Leader, AI GTM" and two "AI Engagement Manager"
+# postings all passed the function rule -- two of them as Strong. The AI is the product
+# being sold or deployed, not the work.
+#
+# "AI advisory / consulting" IS in the criteria, so consultant/advisor/advisory titles are
+# deliberately NOT listed here. "sales" is narrowed to a commercial role noun so that a
+# genuine "Sales Analytics Manager" still reaches the other axes.
+COMMERCIAL_RX = re.compile(r"""(
+    account\s*(executive|manager|director|lead)
+  | \bsales\b\s*(leader|lead|manager|director|rep|representative|executive|specialist)
+  | engagement\s*manager | customer\s*success | client\s*success
+  | \bgtm\b | go[\s\-]*to[\s\-]*market | pre[\s\-]*sales
+  | partnerships?\s*(manager|lead|director) | field\s*enablement
+  | revenue\s*(operations|manager|lead) | \bquota\b
 )""", re.I | re.X)
 
 # ------------------------------------------------------------------------------ level
@@ -160,6 +181,8 @@ def classify(title, locations, *, gov=False, tech_firm=False, text=None):
         return Verdict(False, None, "pure software engineering (AI in the title does not change that)")
     if PRODUCT_RX.search(t):
         return Verdict(False, None, "product/programme/design, not a data function")
+    if COMMERCIAL_RX.search(t):
+        return Verdict(False, None, "go-to-market/customer-facing, not a data function")
     if tech_firm and LPS_RX.search(t):
         return Verdict(False, None, "Lead/Principal/Staff at a tech firm")
 
