@@ -32,8 +32,22 @@ NYC_RX = re.compile(
     r"princeton|pennington|purchase|harrison|westchester|nassau|suffolk|"
     r"west brentwood)\b", re.I)
 NEWARK_NJ_RX = re.compile(r"newark,?\s*(nj|new jersey)\b", re.I)
-# Newark, DE is not Newark, NJ.
-NOT_NYC_RX = re.compile(r"newark,?\s*(de|delaware)", re.I)
+# Newark, DE is not Newark, NJ. And UPSTATE NEW YORK IS NOT NEW YORK CITY: "\bnew york\b"
+# matches "Rochester, New York" and "Buffalo, New York", and the bare-NY token matches
+# "Syracuse, NY", so on 2026-10-01 a consulting role offered in 30 cities -- whose only
+# two New York entries were Rochester and Williamsville, both ~350 miles from Manhattan --
+# was graded a clean NYC match. The state name is not the city.
+#
+# This is checked PER LOCATION STRING, so a list holding both "Rochester, New York" and
+# "New York, NY" still qualifies on the second one, per the all-locations rule. Hudson
+# Valley commuter towns are deliberately NOT listed: they are inside the metro area.
+NOT_NYC_RX = re.compile(
+    r"newark,?\s*(de|delaware)|"
+    r"\b(albany|buffalo|rochester|syracuse|williamsville|amherst|cheektowaga|"
+    r"niagara falls|ithaca|binghamton|utica|rome|schenectady|troy|watertown|"
+    r"elmira|jamestown|plattsburgh|saratoga springs|oswego|olean|corning|"
+    r"geneva|auburn|batavia|lockport|dunkirk|canandaigua|oneonta|cortland)\b"
+    r"[\s,\-\u2013]*(ny\b|new york\b)", re.I)
 # A bare "NY" token ("Acme NY", "NY - New York") means the New York office.
 NY_BARE_RX = re.compile(r"(^|[^A-Za-z])NY($|[^A-Za-z])")
 REMOTE_RX = re.compile(r"\bremote\b|\bwfh\b|work from home|work at home|virtual office|anywhere", re.I)
@@ -52,6 +66,15 @@ US_REMOTE_RX = re.compile(
 BARE_REMOTE_RX = re.compile(
     r"^(remote|fully remote|remote work|remote - flexible|virtual|virtual office|wfh|"
     r"work from home|work at home|anywhere)$", re.I)
+# A location that names the COUNTRY and no place within it. Like a bare remote token it
+# identifies no office, so it must not count as an anchor: "United States" + "Remote" is
+# a posting anchored nowhere, not a hybrid role at a US office. Reading it as an anchor
+# dropped genuine US-remote data roles on two boards (measured 2026-10-01). This does NOT
+# make a bare country on its own remote -- with no remote token in the list at all,
+# location_verdict returns None before the anchor test is reached.
+BARE_COUNTRY_RX = re.compile(
+    r"^(us|u\.s\.|u\.s\.a\.|usa|united states|united states of america|"
+    r"nationwide|national)$", re.I)
 # "MYS - Kuala Lumpur", "CZE - Prague": an ISO-3166 alpha-3 prefix that is not USA.
 ISO_NON_US_RX = re.compile(r"^(?!USA\b)[A-Z]{3}\s*[-\u2013]\s*")
 US_PLACE_RX = re.compile(
@@ -138,7 +161,8 @@ def location_verdict(locations):
         return None
     if any(US_REMOTE_RX.search(s) for s in remote_toks):
         return "remote"                              # "Remote - US" and friends
-    anchors = [s for s in locs if not BARE_REMOTE_RX.match(s)]
+    anchors = [s for s in locs
+               if not BARE_REMOTE_RX.match(s) and not BARE_COUNTRY_RX.match(s)]
     if not anchors:
         return "remote"                              # listed as remote, anchored nowhere
     if all(REMOTE_RX.search(a) and US_PLACE_RX.search(a) for a in anchors):
