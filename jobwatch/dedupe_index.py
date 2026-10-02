@@ -187,14 +187,164 @@ def parse(text):
 
 
 def is_duplicate(slug, url, company, role, ids_by_slug, role_keys, *, legacy_id_map=None):
-    """Both dedupe passes, in order. Returns "url", "role", or None.
+    """DEPRECATED -- kept so old callers fail safe. Use DedupeIndex.judge().
 
-    PASS 2 IS NOT A SAFETY NET FOR PASS 1 -- it missed all 27 duplicates on 2026-09-23
-    because one side's titles were slug-derived. Both passes run; neither is optional.
+    Returns "url" only when the id matches; it can no longer return "role", because a
+    company+title match is NOT a duplicate (see DedupeIndex). It cannot check the title,
+    so prefer judge(), which can.
     """
     mine = {norm_id(t) for t in translate(tokens(url), legacy_id_map)}
     if mine & ids_by_slug.get(slug, set()):
         return "url"
-    if role_key(company, role) in role_keys:
-        return "role"
     return None
+
+
+# ------------------------------------------------------------------- true duplicates
+#
+# THE RULE. A candidate is a duplicate ONLY when it is the same posting already stored:
+# the SAME POSTING ID (after translating id forms) AND the SAME TITLE. Nothing else
+# suppresses a row.
+#
+#   * Same title, different id  -> NOT a duplicate. Write it. Civil-service boards reuse
+#     one title for unrelated jobs: on 2026-10-02 a company+title match suppressed a
+#     second "Senior Data Scientist" at one employer -- a different team, different
+#     duties, a different requisition number -- and on the same day it suppressed 22
+#     other rows, most of them genuinely separate requisitions.
+#   * Same id, different title  -> NOT a duplicate. Write it, and say in Notes that the
+#     requisition was previously listed under another title.
+#   * A token that identifies nothing is not an id. Path words ("job",
+#     "detail", "listingview.cfm") and board GUIDs sit in EVERY url on
+#     a board; the old pass 1 matched on them and suppressed three real postings on
+#     2026-10-02. A token is structural if stored rows with DIFFERENT titles share it, or
+#     if more than one of today's candidates on the board carries it.
+#
+# Title equality tolerates formatting only: case, punctuation, "&" vs "and", plurals,
+# Sr/Senior, and words appended by slug derivation or a req-number suffix (one title's
+# words being a subset of the other's). Because the id must ALSO match, that tolerance
+# can never merge two different requisitions.
+#
+# When a board changes its id scheme (an ATS migration), every posting gets a new id and
+# this rule will write them all again. That is deliberate: the fix is a legacy_id_map
+# for that board, built once and checked, not a title match that guesses.
+
+_ABBREV = {"sr": "senior", "jr": "junior", "mgr": "manager", "mgmt": "management",
+           "eng": "engineer", "dir": "director", "assoc": "associate", "ml": "machine learning"}
+_DROP = {"and", "the", "of", "a", "an", "for", "to", "with", "amp"}
+
+
+def title_words(value):
+    """The words of a title, normalised for formatting only."""
+    import html
+    v = html.unescape(value or "").lower().replace("&", " and ")
+    out = []
+    for w in re.sub(r"[^a-z0-9]+", " ", v).split():
+        w = _ABBREV.get(w, w)
+        for part in w.split():
+            if part in _DROP:
+                continue
+            if len(part) > 3 and part.endswith("s") and not part.endswith("ss"):
+                part = part[:-1]
+            out.append(part)
+    return set(out)
+
+
+def same_title(a, b):
+    """True when two titles differ only in formatting (see the rule above)."""
+    wa, wb = title_words(a), title_words(b)
+    if not wa or not wb:
+        return False
+    return wa <= wb or wb <= wa
+
+
+def structural_tokens(urls, *, legacy_id_map=None):
+    """Tokens carried by more than one of TODAY's postings on one board: not ids.
+
+    Counted over DISTINCT urls: a keyword-union read returns one posting several times,
+    and its id must not turn structural because of that.
+    """
+    seen = {}
+    for u in set(urls):
+        for t in {norm_id(x) for x in translate(tokens(u), legacy_id_map)}:
+            seen[t] = seen.get(t, 0) + 1
+    return {t for t, n in seen.items() if n > 1}
+
+
+class Verdict:
+    __slots__ = ("kind", "stored_key")
+    DUPLICATE, RETITLED, SAME_TITLE, NEW = "duplicate", "retitled", "same_title", "new"
+
+    def __init__(self, kind, stored_key=None):
+        self.kind, self.stored_key = kind, stored_key
+
+    @property
+    def is_duplicate(self):
+        return self.kind == self.DUPLICATE
+
+    def __repr__(self):  # pragma: no cover
+        return f"Verdict({self.kind!r}, {self.stored_key!r})"
+
+
+class DedupeIndex:
+    """The stored postings, line by line, with the true-duplicate test."""
+
+    def __init__(self, text, *, legacy_maps=None):
+        """`legacy_maps` = {slug: legacy_id_map}. Stored lines are translated on load too,
+        so a map added AFTER a row was indexed still applies to that row."""
+        legacy_maps = legacy_maps or {}
+        self.lines = []                                   # (slug, ids, role)
+        for line in (text or "").splitlines():
+            parts = line.rstrip("\n").split(SEP)
+            if len(parts) < 3 or not line.strip():
+                continue
+            role = parts[2].split("||", 1)[-1]
+            ids = {t for t in parts[1].split() if t}
+            ids |= {norm_id(t) for t in translate(ids, legacy_maps.get(parts[0]))}
+            self.lines.append((parts[0], frozenset(ids), role))
+        owners = {}
+        for slug, ids, role in self.lines:
+            for t in ids:
+                owners.setdefault((slug, t), []).append(role)
+        # Shared by stored postings with genuinely different titles -> structure, not an
+        # id. (Two stored copies of one posting under slightly different titles do NOT
+        # make its id structural.)
+        self._structural = {k for k, roles in owners.items()
+                            if any(not same_title(a, b) for a in roles for b in roles)}
+
+    def __len__(self):
+        return len(self.lines)
+
+    def _ids(self, slug, ids):
+        return {t for t in ids if (slug, t) not in self._structural}
+
+    def judge(self, slug, url, role, *, extra_ids=(), legacy_id_map=None, structural=()):
+        """Is this candidate a posting already stored?
+
+        `structural` = structural_tokens() over today's candidate urls for this board.
+        Ids are compared against EVERY stored line, not only this board's, because a
+        posting read via a second board is stored under the employer's own board; the
+        title check makes that safe.
+        """
+        raw = set(tokens(url))
+        for e in extra_ids:
+            raw |= tokens(str(e))
+        mine = {norm_id(t) for t in translate(raw, legacy_id_map)} - set(structural)
+        # A title slug that carries the id ("senior-data-scientist-in-x-jid-70002") is the
+        # published title, so matching it IS a title match -- the candidate's own title may
+        # only be a machine reading of that slug.
+        last = str(url).split("?")[0].rstrip("/").rsplit("/", 1)[-1]
+        title_slug = norm_id(last) if re.search(r"[a-z]{3}", last.lower()) and re.search(r"\d", last) else None
+        retitled = None
+        for s, ids, stored_role in self.lines:
+            shared = mine & self._ids(s, ids)
+            if shared:
+                if same_title(role, stored_role) or (title_slug and title_slug in shared):
+                    return Verdict(Verdict.DUPLICATE, f"{s}\t{stored_role}")
+                if s == slug and retitled is None:
+                    retitled = f"{s}\t{stored_role}"
+        if retitled:
+            return Verdict(Verdict.RETITLED, retitled)
+        target = title_words(role)
+        for s, ids, stored_role in self.lines:
+            if s == slug and title_words(stored_role) == target:
+                return Verdict(Verdict.SAME_TITLE, f"{s}\t{stored_role}")
+        return Verdict(Verdict.NEW)

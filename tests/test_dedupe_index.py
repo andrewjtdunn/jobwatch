@@ -4,8 +4,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from jobwatch.dedupe_index import (boilerplate, index_line, is_duplicate, norm_id,
-                                   norm_text_hard, parse, render, role_key, tokens,
+from jobwatch.dedupe_index import (DedupeIndex, Verdict, boilerplate, index_line,
+                                   is_duplicate, norm_id, norm_text_hard, parse, render,
+                                   role_key, same_title, structural_tokens, tokens,
                                    translate)
 PASS = []
 
@@ -31,7 +32,7 @@ def test_both_sides_reach_one_id_space():
         ("https://slugonly.example/jobs/senior-data-scientist-ads-metro-united-states",
          "senior-data-scientist-ads-metro-united-states"),
         ("https://icims.example/jobs/76849/data-scientist/job", "76849"),
-        ("https://queryparam.example/public/vacancyDetailsView.cfm?id=213466", "213466"),
+        ("https://queryparam.example/public/listingView.cfm?id=213466", "213466"),
         ("https://ghjid.example/jobs/search?gh_jid=8106026", "8106026"),
     ]
     for url, seen in cases:
@@ -49,7 +50,7 @@ def test_guards_against_false_id_matches():
           not ({norm_id(t) for t in a} & {norm_id(t) for t in b}))
     check("a path segment with no digits is not treated as an id",
           "vacancydetailsview.cfm" not in {norm_id(t) for t in tokens(
-              "https://queryparam.example/public/vacancyDetailsView.cfm?id=9")} or True)
+              "https://queryparam.example/public/listingView.cfm?id=9")} or True)
     # Boilerplate: a token on most of a board's rows identifies nothing.
     sets = [{"2026", f"20260{i:04d}"} for i in range(10)]
     check("shared year prefix is boilerplate", "2026" in boilerplate(sets))
@@ -104,13 +105,97 @@ def test_index_round_trip_and_both_passes():
     check("pass 1 catches a different url form for the same id",
           is_duplicate("acme", "https://acme.com/en-US/job/123456", "Acme", "Anything",
                        ids_by_slug, role_keys) == "url")
-    check("pass 2 catches a new url with a known company+role",
+    check("a known company+role at a NEW id is no longer suppressed",
           is_duplicate("acme", "https://acme.com/job/999999", "Acme", "Senior Data Scientist",
-                       ids_by_slug, role_keys) == "role")
+                       ids_by_slug, role_keys) is None)
     check("a genuinely new posting is not a duplicate",
           is_duplicate("acme", "https://acme.com/job/888888", "Acme", "Staff Data Engineer",
                        ids_by_slug, role_keys) is None)
     check("index line carries no free text", index_line(*rows[0]).count("\t") == 2)
+
+
+def test_only_true_duplicates_are_suppressed():
+    """A duplicate is the SAME posting id AND the SAME title. Nothing else.
+
+    Measured 2026-10-02: a company+title match suppressed a second "Senior Data
+    Scientist" at one employer -- a different team and a different requisition -- and
+    path words shared by every url on three boards suppressed three real postings.
+    """
+    rows = [
+        ("city", "https://jobs.example.gov/job/senior-data-scientist-in-all-districts-jid-70001",
+         "Employer", "Senior Data Scientist"),
+        ("state", "https://state.example.gov/public/listingView.cfm?id=500101",
+         "State", "Research Scientist 4 - Part-time"),
+        ("state", "https://state.example.gov/public/listingView.cfm?id=500102",
+         "State", "Senior Manager of Research and Insights"),
+        ("ats", "https://acme.icims.com/jobs/40001/reporting-data-lead/job", "Acme", "Reporting Data Lead"),
+        ("ats", "https://acme.icims.com/jobs/40002/machine-learning-engineer/job",
+         "Acme", "Machine Learning Engineer"),
+        ("bank", "https://bank.example.com/job/900000123", "Bank", "Insights Solutions Director"),
+        ("slugs", "https://example.com/jobs/data-scientist-audio", "Ex", "Data Scientist, Audio"),
+    ]
+    idx = DedupeIndex(render(rows))
+    check("index reads every line", len(idx) == 7)
+
+    v = idx.judge("city", "https://jobs.example.gov/job/senior-data-scientist-in-all-districts-jid-70002",
+                  "Senior Data Scientist")
+    check("same title, different requisition -> written, flagged", v.kind == Verdict.SAME_TITLE)
+    check("...and is not a duplicate", not v.is_duplicate)
+
+    v = idx.judge("city", "https://jobs.example.gov/job/senior-data-scientist-in-all-districts-jid-70001",
+                  "senior data scientist in all districts jid 70001")
+    check("same id, slug-derived title -> duplicate", v.is_duplicate)
+
+    v = idx.judge("state", "https://state.example.gov/public/listingView.cfm?id=500103",
+                  "Research Scientist 2, Head Office")
+    check("a page name shared by every url is not an id", v.kind == Verdict.NEW)
+    v = idx.judge("state", "https://state.example.gov/public/listingView.cfm?id=500101",
+                  "Research Scientist 4 - Part-time")
+    check("...while the real query-param id still matches", v.is_duplicate)
+
+    v = idx.judge("ats", "https://acme.icims.com/jobs/40003/senior-data-engineer/job",
+                  "Senior Data Engineer")
+    check("a trailing path word shared by every url is not an id", v.kind == Verdict.NEW)
+
+    today = ["https://ats.example.com/Board/9f1c2d3e4b5a69788796a5b4c3d2e1f0/Detail?opportunityId=aaaa1111",
+             "https://ats.example.com/Board/9f1c2d3e4b5a69788796a5b4c3d2e1f0/Detail?opportunityId=bbbb2222"]
+    st = structural_tokens(today)
+    check("a board GUID on every one of today's urls is structural",
+          "9f1c2d3e4b5a69788796a5b4c3d2e1f0" in st and "aaaa1111" not in st)
+
+    check("the same url twice in today's read does not make its id structural",
+          "aaaa1111" not in structural_tokens([today[0], today[0], today[1]]))
+
+    v = idx.judge("bank", "https://bank.example.com/job/900000123", "Insights Solutions Manager")
+    check("same id, new title -> written as a retitle, not suppressed", v.kind == Verdict.RETITLED)
+
+    v = idx.judge("bank", "https://bank.example.com/en/job/900000123", "Insights Solutions Director")
+    check("same id and title in another url form -> duplicate", v.is_duplicate)
+
+    v = idx.judge("second-board", "https://jobs.example.gov/job/senior-data-scientist-in-all-districts-jid-70001",
+                  "Senior Data Scientist")
+    check("a row read via a second board matches the employer's stored row by id + title", v.is_duplicate)
+
+    v = idx.judge("city", "https://jobs.example.gov/job/senior-data-scientist-in-all-districts-jid-70001",
+                  "Senior Data Scientist (Agency)")
+    check("an identical title slug carrying the id is the same title", v.is_duplicate)
+    two = DedupeIndex(render([("b", "https://b.com/job/900000456", "B", "ML Scientist - Speech"),
+                              ("b", "https://b.com/job/900000456", "B", "ML Scientist - Speech - Senior Associate")]))
+    check("two stored copies of one posting do not make its id structural",
+          two.judge("b", "https://b.com/job/900000456", "ML Scientist - Speech").is_duplicate)
+
+    old = render([("m", "https://m.org/jobs/planner-climate-research-group", "M", "Planner")])
+    mapped = DedupeIndex(old, legacy_maps={"m": {"planner-climate-research-group": "88000011"}})
+    check("a legacy map added after indexing still translates the stored side",
+          mapped.judge("m", "https://m.org/jobs/88000011", "Planner").is_duplicate)
+
+    v = idx.judge("slugs", "https://example.com/jobs/data-scientist-audio", "Data Scientist, Audio")
+    check("slug-only boards still dedupe", v.is_duplicate)
+
+    check("formatting-only title differences are the same title",
+          same_title("Data & Analytic Services - Client Office", "data analytics services client office")
+          and same_title("Sr. Data Scientist", "Senior Data Scientist"))
+    check("a real title change is not", not same_title("Analytics Manager", "Analytics Director"))
 
 
 def test_parse_survives_a_damaged_index():

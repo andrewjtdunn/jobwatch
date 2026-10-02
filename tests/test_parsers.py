@@ -348,6 +348,9 @@ def test_upstate_new_york_is_not_new_york_city():
     assert v(["Buffalo, New York"]) is None
     assert v(["Albany, New York"]) is None
     assert v(["Syracuse, NY"]) is None
+    # Capital Region suburbs post as their own town, not as Albany (seen 2026-10-02).
+    assert v(["Latham, NY"]) is None
+    assert v(["Rensselaer, New York"]) is None
     # The check is PER STRING, so the all-locations rule still wins on a real NYC entry.
     assert v(["Rochester, New York", "New York, NY"]) == "nyc"
     assert v(["Albany - One Commerce Plaza",

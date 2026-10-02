@@ -46,7 +46,10 @@ NOT_NYC_RX = re.compile(
     r"\b(albany|buffalo|rochester|syracuse|williamsville|amherst|cheektowaga|"
     r"niagara falls|ithaca|binghamton|utica|rome|schenectady|troy|watertown|"
     r"elmira|jamestown|plattsburgh|saratoga springs|oswego|olean|corning|"
-    r"geneva|auburn|batavia|lockport|dunkirk|canandaigua|oneonta|cortland)\b"
+    r"geneva|auburn|batavia|lockport|dunkirk|canandaigua|oneonta|cortland|"
+    # Capital Region suburbs: state agencies post "Latham, NY" for offices next to Albany.
+    r"latham|colonie|rensselaer|cohoes|watervliet|menands|guilderland|clifton park|"
+    r"east greenbush)\b"
     r"[\s,\-\u2013]*(ny\b|new york\b)", re.I)
 # A bare "NY" token ("Acme NY", "NY - New York") means the New York office.
 NY_BARE_RX = re.compile(r"(^|[^A-Za-z])NY($|[^A-Za-z])")
