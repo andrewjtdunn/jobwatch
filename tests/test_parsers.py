@@ -302,6 +302,93 @@ def test_workday_pages_past_a_zero_total_on_later_pages():
 
 
 
+def test_workday_rows_without_locations_text_are_resolved_on_detail():
+    """Some tenants send no locationsText on search rows. Those rows must go to the detail
+    endpoint, or every one fails the location rule on an empty string and the board
+    reads clean while surfacing nothing."""
+    def fake_http(url, data=None, expect_json=False, **kw):
+        if data is not None:
+            return {"total": 1, "jobPostings": [{"externalPath": "/job/x/Data-Scientist_R1",
+                                                 "title": "Data Scientist",
+                                                 "bulletFields": ["R1"],
+                                                 "postedOn": "Posted Today"}]}
+        return {"jobPostingInfo": {"location": "Chicago, Corp",
+                                   "additionalLocations": ["New York, Corp"]}}
+    workday.http = fake_http
+    workday.time.sleep = lambda *a, **k: None
+    cfg = {"slug": "t", "endpoint": "https://example.com/wday/cxs/t/s/jobs",
+           "keywords": [""], "url_shape": "https://example.com{path}", "min_records": 1}
+    recs = workday.resolve_locations(cfg, workday.fetch(cfg))
+    assert recs[0]["locations"] == ["Chicago, Corp", "New York, Corp"], recs[0]["locations"]
+
+
+def test_radancy_pages_walks_path_pages_and_reads_job_page_ld():
+    """Location pages page by a /N path suffix (a ?p= query re-serves page 1), cards
+    carry one location string, and title hits take every location and the date from
+    the job page's JSON-LD. Remote beside an office stays a bare office flag."""
+    from jobwatch.adapters import radancy_pages as rp
+    def card(i, title, loc):
+        return (f'<li data-x="{i}"><a href="/job/city/slug-{i}/999/{1000 + i}" class="sr-item">'
+                f'<h2>{title}</h2><span class="job-location">{loc}</span></a></li>')
+    page1 = '<ul>' + card(1, "Data Scientist", "Multiple Locations") + card(2, "Tax Expert", "City, ST") + '</ul><nav data-total-pages="2"></nav>'
+    page2 = '<ul>' + card(3, "Senior Data Analyst", "City, ST") + '</ul><nav data-total-pages="2"></nav>'
+    ld_multi = ('<script type="application/ld+json">{"@type":"JobPosting","datePosted":"2026-09-01",'
+                '"jobLocation":[{"address":{"addressLocality":"Mountain View","addressRegion":"California"}},'
+                '{"address":{"addressLocality":"New York","addressRegion":"New York"}}],'
+                '"jobLocationType":"TELECOMMUTE","applicantLocationRequirements":{"name":"USA"}}</script>')
+    ld_remote = ('<script type="application/ld+json">{"@type":"JobPosting","datePosted":"2026-09-02",'
+                 '"jobLocation":[{"address":{"addressLocality":"","addressRegion":""}}],'
+                 '"jobLocationType":"TELECOMMUTE","applicantLocationRequirements":{"name":"United States"}}</script>')
+    calls = []
+    def fake_http(url, **kw):
+        calls.append(url)
+        if url.endswith("/listing/2"):
+            return page2
+        if url.endswith("/listing"):
+            return page1
+        if url.endswith("/1001"):
+            return ld_multi
+        if url.endswith("/1003"):
+            return ld_remote
+        raise AssertionError(f"unexpected fetch {url}")
+    rp.http = fake_http
+    rp.time.sleep = lambda *a, **k: None
+    recs = {r["id"]: r for r in rp.fetch({"slug": "t", "base": "https://example.com",
+                                          "pages": ["/listing"], "min_records": 1})}
+    assert set(recs) == {"1001", "1002", "1003"}, recs.keys()
+    assert recs["1001"]["locations"] == ["Mountain View, California", "New York, New York", "Remote"], recs["1001"]
+    assert recs["1001"]["date"] == "2026-09-01"
+    assert recs["1003"]["locations"] == ["Remote - United States"], recs["1003"]
+    assert recs["1002"]["locations"] == ["City, ST"] and recs["1002"]["date"] is None
+    assert not any(u.endswith("/1002") for u in calls), "non-hit job page was opened"
+
+
+def test_breezy_feed_empty_array_is_clean_and_non_array_fails():
+    """Breezy returns a top-level JSON array. [] is a clean empty board; an object (a
+    moved slug or changed route) must fail loudly, never read as 'no new jobs'."""
+    from jobwatch.adapters import breezy
+    from jobwatch.common import BoardError
+    breezy.http = lambda url, **kw: []
+    assert breezy.fetch({"slug": "t", "endpoint": "https://x.breezy.hr/json"}) == []
+    breezy.http = lambda url, **kw: {"error": "not found"}
+    try:
+        breezy.fetch({"slug": "t", "endpoint": "https://x.breezy.hr/json"})
+    except BoardError:
+        pass
+    else:
+        raise AssertionError("a non-array body was accepted")
+    item = {"id": "abc123", "name": "Senior Data Scientist", "url": "x.breezy.hr/p/abc123-senior-data-scientist",
+            "published_date": "2026-09-30T14:00:00.000Z",
+            "locations": [{"city": "New York", "state": {"name": "New York"}, "country": {"name": "United States", "id": "US"}, "is_remote": False},
+                          {"city": "", "state": {}, "country": {"name": "United States", "id": "US"}, "is_remote": True}]}
+    office_remote = {"id": "def456", "name": "Analyst", "url": "https://x.breezy.hr/p/def456",
+                     "location": {"city": "Austin", "state": {"name": "Texas"}, "country": {"name": "United States"}, "is_remote": True}}
+    r1, r2 = breezy.parse([item, office_remote])
+    assert r1["locations"] == ["New York, New York", "Remote - United States"], r1["locations"]
+    assert r1["date"] == "2026-09-30" and r1["url"].startswith("https://"), r1
+    assert r2["locations"] == ["Austin, Texas", "Remote"], r2["locations"]
+
+
 def _icims_pages():
     """Page bodies keyed by the pr value that should fetch them."""
     return {0: open(os.path.join(FIX, "icims_p1.html")).read(),
@@ -496,6 +583,12 @@ def test_roster_fails_when_every_member_fails():
         raise AssertionError("an all-members failure must raise")
     finally:
         adapters.get = real
+
+
+def test_sitemap_title_tag_with_attributes():
+    """A <title> tag carrying attributes must still be read."""
+    m = sitemap.TITLE_TAG_RX.search('<title data-next-head="">Data Scientist, Pricing</title>')
+    assert m and m.group(1) == "Data Scientist, Pricing"
 
 if __name__ == "__main__":
     import traceback

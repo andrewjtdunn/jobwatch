@@ -25,9 +25,9 @@ from jobwatch.common import BoardError, title_hit
 
 GROUPS = {
     "ashby": ["ashby"],
-    "greenhouse": ["greenhouse", "workable", "lever"],
+    "greenhouse": ["greenhouse", "workable", "lever", "breezy"],
     "workday": ["workday"],
-    "oracle": ["oracle", "radancy"],
+    "oracle": ["oracle", "radancy", "radancy_pages"],
     "avature": ["avature"],
     "sitemap": ["sitemap"],
     "gov": ["socrata", "jobvite"],

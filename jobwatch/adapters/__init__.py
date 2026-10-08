@@ -4,7 +4,7 @@ record = {"id", "title", "locations": [str], "url", "date": "YYYY-MM-DD"|None, "
 Most boards are a config row in boards.json, not code. Add code only for a real oddity.
 """
 from . import (ashby, greenhouse, workable, lever, oracle, workday, avature,  # noqa: F401
-               radancy, jobvite, sitemap, socrata, icims, roster)
+               radancy, radancy_pages, breezy, jobvite, sitemap, socrata, icims, roster)
 
 REGISTRY = {
     "ashby": ashby,
@@ -15,6 +15,8 @@ REGISTRY = {
     "workday": workday,
     "avature": avature,
     "radancy": radancy,
+    "radancy_pages": radancy_pages,
+    "breezy": breezy,
     "jobvite": jobvite,
     "sitemap": sitemap,
     "socrata": socrata,

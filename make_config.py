@@ -37,6 +37,7 @@ def infer_adapter(endpoint):
         ("apply.workable.com", "workable"),
         ("jobs.lever.co", "lever"),
         ("icims.com", "icims"),
+        ("breezy.hr", "breezy"),
         ("/search-jobs", "radancy"),
     ]
     for needle, adapter in rules:
@@ -102,6 +103,10 @@ def build(rows, *, radancy_adapter="radancy", overrides=None):
         if adapter == "avature":
             cfg["base"] = re.match(r"(https://[^/]+)", endpoint).group(1)
             cfg.update(per_page=10, max_records=200)
+        if adapter == "breezy":
+            # An empty array is a normal state for a small board; the adapter's shape
+            # check, not a record floor, is what separates empty from broken.
+            cfg["min_records"] = 0
         if adapter == "jobvite":
             cfg["base"] = "https://jobs.jobvite.com"
             cfg["min_records"] = 20

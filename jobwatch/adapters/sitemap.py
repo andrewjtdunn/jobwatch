@@ -79,7 +79,9 @@ def resolve(cfg, records):
     return records
 
 
-TITLE_TAG_RX = re.compile(r"<title>([^<]*)</title>", re.I)
+# Pages may carry attributes on the tag (<title data-next-head="">); a bare <title> match
+# read no title at all, so title_hit() never fired and the watermark still advanced.
+TITLE_TAG_RX = re.compile(r"<title\b[^>]*>([^<]*)</title>", re.I)
 TITLE_SUFFIX_RX = re.compile(r"\s*[-|]\s*[^-|]{0,40}(careers?|jobs?)\s*$", re.I)
 ID_SEQ_RX = re.compile(r"(\d+)\s*$")
 

@@ -74,7 +74,7 @@ SWE_SOFT_RX = re.compile(r"""(
     backend | back\s*-\s*end | front\s*-?\s*end | full\s*-?\s*stack | devops
   | site\s*reliability | platform\s*engineer | security\s*engineer | network\s*engineer
   | \bqa\b | mobile\s*engineer | android | \bios\b | web\s*developer
-  | application\s*developer | solutions\s*architect | cloud\s*engineer
+  | application\s*develop | solutions\s*architect | cloud\s*engineer | microservices?
 )""", re.I | re.X)
 
 # ...the ONLY escape, and only from SWE_SOFT_RX.
@@ -85,7 +85,8 @@ ML_ROLE_RX = re.compile(r"""(
 )""", re.I | re.X)
 
 PRODUCT_RX = re.compile(r"""(
-    product\s*(manager|owner|lead|director|engineer|manage) | \bux\b | \bui\b | designer
+    product\s*(manager|owner|lead|director|engineer|manage)
+  | product\s*delivery\s*(manager|lead|owner|director) | \bux\b | \bui\b | designer
   | program\s*manager | project\s*manag | scrum | \bagile\b | salesforce
   | technical\s*program | business\s*development | \bsales\b\s*(strategy|engineer)
   | marketing\s*(ai|automation)
