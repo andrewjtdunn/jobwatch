@@ -313,8 +313,8 @@ class DedupeIndex:
     def __len__(self):
         return len(self.lines)
 
-    def _ids(self, slug, ids):
-        return {t for t in ids if (slug, t) not in self._structural}
+    def _ids(self, slug, ids, rescued=frozenset()):
+        return {t for t in ids if (slug, t) not in self._structural or t in rescued}
 
     def judge(self, slug, url, role, *, extra_ids=(), legacy_id_map=None, structural=()):
         """Is this candidate a posting already stored?
@@ -333,9 +333,15 @@ class DedupeIndex:
         # only be a machine reading of that slug.
         last = str(url).split("?")[0].rstrip("/").rsplit("/", 1)[-1]
         title_slug = norm_id(last) if re.search(r"[a-z]{3}", last.lower()) and re.search(r"\d", last) else None
+        # A RETITLED posting is stored twice under one id with two titles, and that alone
+        # marks its id structural -- after which the posting matches nothing and is
+        # re-written as new every run. The candidate's OWN final path segment carrying a
+        # 5+ digit number is its id, never a path word or board GUID, so it is rescued.
+        rescued = {t for t in mine if t in {norm_id(x) for x in tokens("/" + last)}
+                   and len(re.sub(r"\D", "", t)) >= 5}
         retitled = None
         for s, ids, stored_role in self.lines:
-            shared = mine & self._ids(s, ids)
+            shared = mine & self._ids(s, ids, rescued)
             if shared:
                 if same_title(role, stored_role) or (title_slug and title_slug in shared):
                     return Verdict(Verdict.DUPLICATE, f"{s}\t{stored_role}")

@@ -55,6 +55,7 @@ COMMON = {
     # words that produced false positives on the first real run of this script
     "union", "unions", "spring", "summer", "winter", "autumn", "block", "blocks",
     "current", "currently", "network", "networks", "reset", "shift",
+    "future", "futures",  # Python's `from __future__` and "future opportunities" are everywhere
     # generic hostname labels: these are subdomains, never the employer
     "apply", "jobs", "job", "careers", "career", "recruiting", "recruit", "boards",
     "board", "hire", "hiring", "talent", "join", "work", "people", "www", "api",

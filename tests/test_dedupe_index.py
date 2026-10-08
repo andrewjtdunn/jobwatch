@@ -184,6 +184,15 @@ def test_only_true_duplicates_are_suppressed():
     check("two stored copies of one posting do not make its id structural",
           two.judge("b", "https://b.com/job/900000456", "ML Scientist - Speech").is_duplicate)
 
+    rt = DedupeIndex(render([("x", "https://x.com/en/sites/CX_1/job/26000950", "X", "Senior Staff ML Engineering"),
+                             ("x", "https://x.com/en/sites/CX_1/job/26000950", "X", "Senior Staff ML Engineer - Platform")]))
+    check("a retitled posting stored under both titles is still a duplicate under either",
+          rt.judge("x", "https://x.com/en/sites/CX_1/job/26000950",
+                   "Senior Staff ML Engineer - Platform").is_duplicate)
+    check("...and a different requisition with that title is still written",
+          not rt.judge("x", "https://x.com/en/sites/CX_1/job/26000951",
+                       "Senior Staff ML Engineer - Platform").is_duplicate)
+
     old = render([("m", "https://m.org/jobs/planner-climate-research-group", "M", "Planner")])
     mapped = DedupeIndex(old, legacy_maps={"m": {"planner-climate-research-group": "88000011"}})
     check("a legacy map added after indexing still translates the stored side",

@@ -41,8 +41,12 @@ def fetch(cfg):
                     "date": relative_date(p.get("postedOn")),
                     "date_note": "",
                     "_path": path,
-                    "_multi": "location" in (p.get("locationsText") or "").lower()
-                              and any(ch.isdigit() for ch in (p.get("locationsText") or "")),
+                    # Some tenants omit locationsText from the search rows entirely; the
+                    # location then lives only on the detail endpoint, so resolve those too
+                    # or every row fails the location rule with an empty string.
+                    "_multi": not (p.get("locationsText") or "").strip()
+                              or ("location" in (p.get("locationsText") or "").lower()
+                                  and any(ch.isdigit() for ch in (p.get("locationsText") or ""))),
                 }
             offset += 20
             if not posts or len(posts) < 20:

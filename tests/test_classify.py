@@ -228,6 +228,16 @@ def test_go_to_market_roles_are_not_data_roles():
           classify("Data Engineer, Account Platform", NYC).keep)
 
 
+
+def test_application_development_and_product_delivery_are_not_data_roles():
+    """A stack-described application-development manager and a product-delivery manager
+    are not data roles, even with data/AI words in the title."""
+    check("drops application development manager",
+          not classify("Senior Manager, Application Development (Java, Microservices)", NYC).keep)
+    check("drops product delivery manager",
+          not classify("Product Delivery Manager - Data Governance", NYC).keep)
+    check("keeps data science manager", classify("Data Science Manager", NYC).keep)
+
 if __name__ == "__main__":
     for fn in [v for k, v in sorted(globals().items()) if k.startswith("test_")]:
         fn()
