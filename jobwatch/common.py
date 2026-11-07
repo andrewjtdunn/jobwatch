@@ -192,7 +192,9 @@ def location_verdict(locations):
 REMOTE_TEXT_RX = re.compile(
     r"#li-remote"
     r"|(?:will|can|may)\s+(?:be\s+)?(?:work(?:ed)?|filled)\s+(?:\w+\s+){0,2}remote"
-    r"|\b(?:fully|100%|entirely|permanently)\s+remote"
+    # "...or are part of our fully remote program" is benefits boilerplate about the
+    # company's remote employees in general, not a statement about this role.
+    r"|\b(?:fully|100%|entirely|permanently)\s+remote(?!\s+(?:program|employees|workforce|team\s*members))"
     r"|\bremote[\s\-]*(?:first|eligible|optional)\b"
     r"|\bthis\s+(?:is\s+a|position\s+is\s+a?)\s*(?:\w+\s+){0,2}remote"
     r"|\bwork\s+from\s+anywhere\b",

@@ -292,6 +292,17 @@ def test_content_developers_are_not_data_roles():
     check("drops technical writer", not classify("Technical Writer, Data Platform", NYC).keep)
     check("still keeps data developer", classify("Senior Data Analyst, Content Analytics", NYC).keep)
 
+def test_remote_program_boilerplate_is_not_remote_evidence():
+    office = ["San Francisco Office"]
+    boiler = "Whether you're coming in regularly or are part of our fully remote program, you'll stay engaged."
+    check("company remote-program boilerplate does not make a role remote",
+          not classify("Senior Data Scientist", office, text=boiler).keep)
+    check("a flat statement still does", classify("Senior Data Scientist", office,
+          text="Location: This is a fully remote position.").keep)
+    check("work from anywhere in the US still does", classify("Senior Data Scientist", office,
+          text="(Work from anywhere: This role can be performed from any location in the United States)").keep)
+    check("drops content marketing manager", not classify("Content Marketing Manager, SEO & AI Search", ["New York, NY"]).keep)
+
 if __name__ == "__main__":
     for fn in [v for k, v in sorted(globals().items()) if k.startswith("test_")]:
         fn()

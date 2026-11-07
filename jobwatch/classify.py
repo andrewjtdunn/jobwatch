@@ -63,6 +63,8 @@ NONDATA_RX = re.compile(r"""(
   # Technical writers / content developers produce training and documentation; "AI" after
   # the role is the subject matter, not the work.
   | content\s*develop | technical\s*writ
+  # Content marketing is a marketing role; "AI Search" after it is the channel.
+  | content\s*market
 )""", re.I | re.X)
 
 # Pure software engineering is excluded by the criteria. "AI" in the title does NOT

@@ -106,6 +106,43 @@ def test_greenhouse_splits_location_lists():
     assert [r["id"] for r in kept] == ["101"]                   # resume bank and chef dropped
 
 
+def test_greenhouse_prefers_first_published_and_resolves_failing_locations():
+    """A Data Scientist role whose free-text location was the placeholder "Template",
+    with its real office ("Remote US") only on the detail endpoint, failed the location
+    rule with no warning. Rows that already pass must not be opened."""
+    listing = {"meta": {"total": 2}, "jobs": [
+        {"id": 201, "title": "Data Scientist ", "location": {"name": "Template "},
+         "absolute_url": "https://job-boards.greenhouse.io/q/jobs/201",
+         "first_published": "2026-11-05T11:36:42-05:00", "updated_at": "2026-11-06T09:00:00Z"},
+        {"id": 202, "title": "Senior Data Analyst", "location": {"name": "New York, NY"},
+         "absolute_url": "https://job-boards.greenhouse.io/q/jobs/202",
+         "updated_at": "2026-11-01T09:00:00Z"}]}
+    detail = {"offices": [{"name": "Remote US"}],
+              "content": "&lt;p&gt;Flexible work &amp;mdash; remote-first environment&lt;/p&gt;"}
+    opened = []
+
+    def fake_http(url, **k):
+        if url.endswith("/201"):
+            opened.append(url)
+            return detail
+        if url.endswith("/202"):
+            opened.append(url)
+            raise AssertionError("a passing row must not be opened")
+        return listing
+    greenhouse.http = fake_http
+    cfg = {"slug": "t", "endpoint": "https://boards-api.greenhouse.io/v1/boards/q/jobs",
+           "min_records": 1, "detail_delay": 0}
+    recs = greenhouse.fetch(cfg)
+    assert recs[0]["date"] == "2026-11-05" and recs[0]["date_note"] == ""   # first_published
+    assert recs[1]["date"] == "2026-11-01" and recs[1]["date_note"].startswith("Date is Greenhouse updated_at")
+    assert not common.location_ok(recs[0]["locations"])                    # "Template" alone fails
+    greenhouse.resolve_details(cfg, recs)
+    assert opened == ["https://boards-api.greenhouse.io/v1/boards/q/jobs/201"]
+    assert recs[0]["locations"] == ["Template", "Remote US"]
+    assert "remote-first" in recs[0]["description"]
+    assert common.location_ok(recs[0]["locations"])
+
+
 def test_jobvite_markup_and_floor():
     _stub(open(os.path.join(FIX, "jobvite.html")).read())
     recs = jobvite.fetch({"slug": "t", "endpoint": "x", "base": "https://jobs.jobvite.com", "min_records": 1})
