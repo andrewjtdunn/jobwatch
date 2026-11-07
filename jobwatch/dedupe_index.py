@@ -26,6 +26,7 @@ both sides, tested.
 from __future__ import annotations
 
 import re
+from urllib.parse import parse_qsl, urlsplit
 
 # ---------------------------------------------------------------------------- tokens
 
@@ -337,8 +338,12 @@ class DedupeIndex:
         # marks its id structural -- after which the posting matches nothing and is
         # re-written as new every run. The candidate's OWN final path segment carrying a
         # 5+ digit number is its id, never a path word or board GUID, so it is rescued.
-        rescued = {t for t in mine if t in {norm_id(x) for x in tokens("/" + last)}
-                   and len(re.sub(r"\D", "", t)) >= 5}
+        # The same holds for a query-param id ("?gh_jid=<n>", "?id=<n>"): a board
+        # keyed by a query param has no id in its final path segment at all.
+        own = {norm_id(x) for x in tokens("/" + last)}
+        for _k, _v in parse_qsl(urlsplit(str(url)).query):
+            own |= {norm_id(x) for x in tokens(_v)}
+        rescued = {t for t in mine if t in own and len(re.sub(r"\D", "", t)) >= 5}
         retitled = None
         for s, ids, stored_role in self.lines:
             shared = mine & self._ids(s, ids, rescued)
