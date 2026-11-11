@@ -58,6 +58,8 @@ def run_board(cfg):
     hits = [r for r in records if title_hit(r["title"])]
     if cfg["adapter"] == "workday" and hasattr(mod, "resolve_locations"):
         mod.resolve_locations(cfg, hits)
+    if cfg["adapter"] == "greenhouse" and hasattr(mod, "resolve_details"):
+        mod.resolve_details(cfg, hits)
     if cfg["adapter"] == "sitemap" and hasattr(mod, "resolve"):
         mod.resolve(cfg, hits)
     if cfg["adapter"] == "avature":

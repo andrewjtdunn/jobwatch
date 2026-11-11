@@ -55,6 +55,16 @@ NONDATA_RX = re.compile(r"""(
   | finance\s*&?\s*business\s*management | customer\s*service | records\s*management
   | vital\s*statistic | market\s*research | dental | clinical\s*network
   | network\s*relations
+  # Legal roles carry analyst/research words but are not data functions.
+  | \bcounsel\b | \battorney\b | paralegal
+  # IT audit is an audit function even when the area audited is data. (Internal-audit
+  # teams do hire real data scientists, so "internal audit" alone is NOT listed.)
+  | \bit\s*audit\b
+  # Technical writers / content developers produce training and documentation; "AI" after
+  # the role is the subject matter, not the work.
+  | content\s*develop | technical\s*writ
+  # Content marketing is a marketing role; "AI Search" after it is the channel.
+  | content\s*market
 )""", re.I | re.X)
 
 # Pure software engineering is excluded by the criteria. "AI" in the title does NOT
@@ -66,7 +76,7 @@ NONDATA_RX = re.compile(r"""(
 # role. "Lead Software Engineer - Data Engineer" is a software engineering job. Letting
 # ML_ROLE_RX rescue it admitted exactly that title on the 2026-09-30 replay.
 SWE_ABSOLUTE_RX = re.compile(
-    r"software\s*(engineer|development\s*engineer|architect)", re.I)
+    r"software\s*(engineer|development\s*engineer|architect|developer)", re.I)
 
 # These SWE signals CAN be overridden by an explicit ML/DS role-noun, because they are
 # describing a stack rather than the role ("Machine Learning Engineer, Backend").
@@ -75,6 +85,9 @@ SWE_SOFT_RX = re.compile(r"""(
   | site\s*reliability | platform\s*engineer | security\s*engineer | network\s*engineer
   | \bqa\b | mobile\s*engineer | android | \bios\b | web\s*developer
   | application\s*develop | solutions\s*architect | cloud\s*engineer | microservices?
+  # Low-code / BPM platform developers build applications; "reporting" or "data" after
+  # the platform name is the app's domain, not a data role.
+  | (appian|pega|servicenow|outsystems|mendix)\s*dev | low[\s\-]*code\s*develop
 )""", re.I | re.X)
 
 # ...the ONLY escape, and only from SWE_SOFT_RX.
@@ -86,7 +99,14 @@ ML_ROLE_RX = re.compile(r"""(
 
 PRODUCT_RX = re.compile(r"""(
     product\s*(manager|owner|lead|director|engineer|manage)
+  # "Product Associate" / "Associate, Product" is a product-manager title at some banks.
+  | product\s*associate | associate\W*product\b
+  # "Director of Product, <area>" is a product-management title; the area named after
+  # it (even a data area) is what the product covers, not the work.
+  | (director|manager)\s*of\s*product\b(?!\s*analytic)
   | product\s*delivery\s*(manager|lead|owner|director) | \bux\b | \bui\b | designer
+  # UX research spelled out: "Experience Researcher" is the same role as "UX Researcher".
+  | experience\s*research
   | program\s*manager | project\s*manag | scrum | \bagile\b | salesforce
   | technical\s*program | business\s*development | \bsales\b\s*(strategy|engineer)
   | marketing\s*(ai|automation)
@@ -111,13 +131,23 @@ COMMERCIAL_RX = re.compile(r"""(
   | \bgtm\b | go[\s\-]*to[\s\-]*market | pre[\s\-]*sales
   | partnerships?\s*(manager|lead|director) | field\s*enablement
   | revenue\s*(operations|manager|lead) | \bquota\b
+  | (sales|bid)\s*capture | capture\s*manager | sales\s*and\s*client | video\s*production
+  # Customer onboarding/activation roles sell or roll out the product; "AI Platform" after
+  # the role is the product line, not the work.
+  | customer\s*(activation|onboarding|implementation)
+  # "Software Sales Associate Director": a sales title with "associate" between the
+  # words, which the sales role-noun rule above does not reach.
+  | software\s*sales | \bsales\s*associate\b
 )""", re.I | re.X)
 
 # ------------------------------------------------------------------------------ level
 
 VP_RX = re.compile(
     r"(\bvp\b|vice\s*president|\bsvp\b|\bevp\b|\bchief\b|\bhead\s+of\b|president"
-    r"|\bcto\b|\bcio\b|\bcdo\b|executive\s*director|managing\s*director|\bpartner\b)", re.I)
+    r"|\bcto\b|\bcio\b|\bcdo\b|executive\s*director|managing\s*director|\bpartner\b"
+    # "ED, <area>" is Executive Director abbreviated. Anchored to the title start and a
+    # following separator, so words like "Credit" or "Regulated" never match.
+    r"|^\s*ed\s*[,:\-–])", re.I)
 SENIOR_RX = re.compile(
     r"(\bsenior\b|\bsr\.?\b|\bmanager\b|\bmgr\b|\blead\b|\bii\b|\biii\b|\blevel\s*2\b)", re.I)
 # Below level I. "Fellow" and "trainee" belong here: term-limited and junior.

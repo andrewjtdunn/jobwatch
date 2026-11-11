@@ -205,6 +205,14 @@ def test_only_true_duplicates_are_suppressed():
           same_title("Data & Analytic Services - Client Office", "data analytics services client office")
           and same_title("Sr. Data Scientist", "Senior Data Scientist"))
     check("a real title change is not", not same_title("Analytics Manager", "Analytics Director"))
+    qp = DedupeIndex(render([("q", "https://q.com/jobs/search?gh_jid=8000123", "Q", "AI Accelerator, Marketing"),
+                             ("q", "https://q.com/jobs/search?gh_jid=8000123", "Q", "AI Accelerator, Sales Development"),
+                             ("q", "https://q.com/jobs/search?gh_jid=8000999", "Q", "Data Scientist")]))
+    check("a retitled posting keyed by a QUERY-PARAM id is still a duplicate under its current title",
+          qp.judge("q", "https://q.com/jobs/search?gh_jid=8000123",
+                   "AI Accelerator, Sales Development").is_duplicate)
+    check("...while the shared path word is still structural",
+          not qp.judge("q", "https://q.com/jobs/search?gh_jid=8000555", "Data Scientist").is_duplicate)
 
 
 def test_parse_survives_a_damaged_index():

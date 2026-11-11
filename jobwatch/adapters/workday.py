@@ -1,7 +1,9 @@
 """Workday CXS search. limit is capped at 20 regardless of what you ask for, and "N
 Locations" rows must be resolved on the detail endpoint or the all-locations rule
 silently fails."""
+import re
 import time
+from html import unescape
 
 from ..common import assert_records, http, relative_date
 
@@ -12,11 +14,21 @@ def _search(cfg, keyword, offset, facets=None):
 
 
 def _detail(cfg, external_path):
+    """-> (locations, startDate, plain-text description) from the detail endpoint."""
     base = cfg["endpoint"].rsplit("/jobs", 1)[0]
     data = http(base + external_path, expect_json=True)
     info = data.get("jobPostingInfo") or {}
     locs = [info.get("location")] + list(info.get("additionalLocations") or [])
-    return [l for l in locs if l], info.get("startDate")
+    return [l for l in locs if l], info.get("startDate"), _plain(info.get("jobDescription"))
+
+
+_TAG_RX = re.compile(r"<[^>]+>")
+_WS_RX = re.compile(r"\s+")
+
+
+def _plain(html):
+    """Job description HTML as one line of plain text, for classify(text=...)."""
+    return _WS_RX.sub(" ", unescape(_TAG_RX.sub(" ", html or ""))).strip()
 
 
 def fetch(cfg):
@@ -62,16 +74,26 @@ def fetch(cfg):
 
 
 def resolve_locations(cfg, records):
-    """Second pass: only for title hits, and only where the row says 'N Locations'."""
+    """Second pass, for title hits only.
+
+    By default only rows whose search card says 'N Locations' (or no location) are opened.
+    With cfg["read_description"] every title hit is opened and its description kept as
+    r["description"], which run.py passes to classify(text=...). That is for tenants whose
+    location list names only offices while the body says "remote eligible in the
+    continental U.S." -- reading the list alone drops those roles (seen 2026-11-02).
+    """
+    read_desc = bool(cfg.get("read_description"))
     for r in records:
-        if not r.get("_multi"):
+        if not (r.get("_multi") or read_desc):
             continue
         try:
-            locs, start = _detail(cfg, r["_path"])
+            locs, start, desc = _detail(cfg, r["_path"])
         except Exception:  # a single detail miss must not fail the board
             continue
         if locs:
             r["locations"] = locs
+        if read_desc and desc:
+            r["description"] = desc
         if start and not r.get("date"):
             from ..common import iso_date
             r["date"] = iso_date(start)

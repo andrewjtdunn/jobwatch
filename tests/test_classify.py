@@ -238,6 +238,71 @@ def test_application_development_and_product_delivery_are_not_data_roles():
           not classify("Product Delivery Manager - Data Governance", NYC).keep)
     check("keeps data science manager", classify("Data Science Manager", NYC).keep)
 
+def test_legal_and_capture_roles_are_not_data_roles():
+    check("drops AI counsel", not classify("Senior Counsel, AI and Data", NYC).keep)
+    check("drops paralegal", not classify("Paralegal - Data Privacy", NYC).keep)
+    check("drops capture manager", not classify("AI Capture Manager", NYC).keep)
+    check("drops sales capture", not classify("Data & AI Sales Capture Lead", NYC).keep)
+    check("drops video production", not classify("AI Video Production Specialist", NYC).keep)
+    check("still keeps data scientist", classify("Senior Data Scientist", NYC).keep)
+
+def test_spelled_out_ux_research_is_not_a_data_role():
+    check("drops experience researcher", not classify("Senior Experience Researcher", NYC).keep)
+    check("drops user experience researcher", not classify("User Experience Researcher", NYC).keep)
+    check("still keeps research scientist", classify("Research Scientist, Personalization", NYC).keep)
+
+def test_software_developer_and_product_associate_are_excluded():
+    check("drops lead software developer", not classify("Lead Software Developer - Java, Python, AWS & AI Platform", NYC).keep)
+    check("drops senior product associate", not classify("Senior Product Associate - Data Governance", NYC).keep)
+    check("drops senior associate, product", not classify("Wealth Management - Senior Associate, Product - AI", NYC).keep)
+    check("still keeps data product scientist", classify("Applied AI & Data Product Scientist", NYC).keep)
+    check("still keeps analytics senior associate", classify("Analytics Solutions, Senior Associate", NYC).keep)
+
+def test_low_code_platform_developers_are_not_data_roles():
+    check("drops appian developer", not classify("Appian Developer, Software and Data Management", NYC).keep)
+    check("drops appian dev reporting", not classify("Appian Dev, Reporting and Analytics", NYC).keep)
+    check("drops low-code developer", not classify("Low-Code Developer - Data Platform", NYC).keep)
+    check("still keeps reporting analyst", classify("Reporting and Data Analyst", NYC).keep)
+
+def test_director_of_product_is_a_product_role():
+    check("drops director of product, data area", not classify("Director of Product, Member Data Platform", NYC).keep)
+    check("drops manager of product", not classify("Manager of Product - Data Platform", NYC).keep)
+    check("still keeps manager of product analytics", classify("Manager of Product Analytics", NYC).keep)
+
+def test_ed_abbreviation_is_executive_director():
+    check("drops ED, analytics leader", not classify("ED, Business Analytics Transformation Leader", NYC).keep)
+    check("still keeps ...ed words", classify("Senior Data Scientist, Regulated Credit Models", NYC).keep)
+    check("still keeps Ed-tech analyst", classify("EdTech Data Analyst", NYC).keep)
+
+def test_customer_activation_is_not_a_data_role():
+    check("drops customer activation manager", not classify("Customer Activation Manager | AI Platform", NYC).keep)
+    check("drops customer onboarding lead", not classify("Customer Onboarding Lead, Data Platform", NYC).keep)
+    check("still keeps customer analytics", classify("Senior Data Scientist, Customer Analytics", NYC).keep)
+
+def test_software_sales_and_it_audit_are_not_data_roles():
+    check("drops software sales associate director", not classify("Software Sales Associate Director - Marketing Analytics Software", NYC).keep)
+    check("drops IT audit manager", not classify("Senior Manager, IT Audit - Data Governance", NYC).keep)
+    check("keeps an internal-audit data scientist", classify("Internal Audit, Asset Wealth Management - Senior Associate - Data Scientist", NYC).keep)
+    check("still keeps sales analytics manager", classify("Sales Analytics Manager", NYC).keep)
+    check("still keeps data governance analyst", classify("Senior Analyst Data Governance & Management - Finance", NYC).keep)
+    check("still keeps audit-free data scientist", classify("Data Scientist, Credit Analytics", NYC).keep)
+
+def test_content_developers_are_not_data_roles():
+    check("drops technical content developer", not classify("Technical Content Developer Associate Manager, AI POD", NYC).keep)
+    check("drops technical writer", not classify("Technical Writer, Data Platform", NYC).keep)
+    check("still keeps data developer", classify("Senior Data Analyst, Content Analytics", NYC).keep)
+
+def test_remote_program_boilerplate_is_not_remote_evidence():
+    office = ["San Francisco Office"]
+    boiler = "Whether you're coming in regularly or are part of our fully remote program, you'll stay engaged."
+    check("company remote-program boilerplate does not make a role remote",
+          not classify("Senior Data Scientist", office, text=boiler).keep)
+    check("a flat statement still does", classify("Senior Data Scientist", office,
+          text="Location: This is a fully remote position.").keep)
+    check("work from anywhere in the US still does", classify("Senior Data Scientist", office,
+          text="(Work from anywhere: This role can be performed from any location in the United States)").keep)
+    check("drops content marketing manager", not classify("Content Marketing Manager, SEO & AI Search", ["New York, NY"]).keep)
+
 if __name__ == "__main__":
     for fn in [v for k, v in sorted(globals().items()) if k.startswith("test_")]:
         fn()
